@@ -63,12 +63,6 @@ def lambda_handler(event, context):
     s3_bucket_script = os.environ['SCRIPT_BUCKET']
     input_script = os.environ['SPARK_SCRIPT']
 
-    os.environ['CR_TABLE_NAME'] = 'iceberg_curated'
-    os.environ['DATABASE_NAME'] = 'powerup-lakeformation'
-    os.environ['ICB_WG'] = 'iceberg-workgroup-tst'
-    os.environ['LAMBDA_VERSION'] = 'staging'
-    os.environ['RC_TABLE_NAME'] = 'iceberg_records'
-
     s3_script_download(s3_bucket_script,input_script)
     
     # Set the environment variables for the Spark application

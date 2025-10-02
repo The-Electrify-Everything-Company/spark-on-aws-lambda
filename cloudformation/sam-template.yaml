@@ -207,4 +207,9 @@ Resources:
           SPARK_SCRIPT: !Ref SparkScript
           #INPUT_PATH: !Ref InputPath
           #OUTPUT_PATH: !Ref OutputPath
+          CR_TABLE_NAME: 'iceberg_curated'
+          DATABASE_NAME: 'powerup-lakeformation'
+          ICB_WG: 'iceberg-workgroup-tst'
+          LAMBDA_VERSION: 'staging'
+          RC_TABLE_NAME: 'iceberg_records'
 
