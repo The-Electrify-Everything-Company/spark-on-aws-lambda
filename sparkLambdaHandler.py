@@ -1,3 +1,4 @@
+import importlib
 import boto3
 import sys
 import os
@@ -27,7 +28,12 @@ def s3_script_download(s3_bucket_script: str,input_script: str)-> None:
     else:
         logger.info(f'Script {input_script} successfully downloaded to /tmp')
 
-
+def import_spark_script(path: str, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     """
@@ -35,14 +41,16 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     """
 
     try:
+        spark_module = import_spark_script("/tmp/spark_script.py", "spark_script")
         logger.info(f'Spark-Submitting the Spark script {input_script} from {s3_bucket_script}')
-        subprocess.run(
-            ["spark-submit", "/tmp/spark_script.py", "--event", json.dumps(event)],
-            check=True,
-            env=os.environ,
-            stdout=sys.stdout,
-            stderr=sys.stderr
-        )
+        # subprocess.run(
+        #     ["spark-submit", "/tmp/spark_script.py", "--event", json.dumps(event)],
+        #     check=True,
+        #     env=os.environ,
+        #     stdout=sys.stdout,
+        #     stderr=sys.stderr
+        # )
+        spark_module.main(event)
     except Exception as e :
         logger.error(f'Error Spark-Submit with exception: {e}')
         raise e
