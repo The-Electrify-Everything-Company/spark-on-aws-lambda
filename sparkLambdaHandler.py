@@ -12,7 +12,11 @@ handler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-
+ICEBERG_VERSION = "1.5.0"
+ICEBERG_JARS = [
+    f"iceberg-spark-runtime-3.5_2.12-{ICEBERG_VERSION}.jar",
+    f"iceberg-aws-bundle-{ICEBERG_VERSION}.jar"
+]
 def s3_script_download(s3_bucket_script: str,input_script: str)-> None:
     """
     """
@@ -35,9 +39,12 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     """
 
     try:
+        jars_local = [f"/tmp/{jar}" for jar in ICEBERG_JARS]
+        jars_arg = ",".join(jars_local)
+
         logger.info(f'Spark-Submitting the Spark script {input_script} from {s3_bucket_script}')
         subprocess.run(
-            ["spark-submit", "/tmp/spark_script.py", "--event", json.dumps(event)],
+            ["spark-submit","--jars", jars_arg, "/tmp/spark_script.py", "--event", json.dumps(event)],
             check=True,
             env=os.environ,
             stdout=sys.stdout,
