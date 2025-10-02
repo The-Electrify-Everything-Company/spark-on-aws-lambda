@@ -144,7 +144,7 @@ def create_iceberg_spark_session():
     logger.info("Spark session created successfully")
     return spark
 
-def lambda_handler(event):
+def lambda_handler(event,context):
     try:
         spark = create_iceberg_spark_session()
         
