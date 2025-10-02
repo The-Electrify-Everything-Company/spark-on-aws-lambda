@@ -129,11 +129,10 @@ Resources:
           - Effect: Allow
             Action:
               - s3:ListBucket
-            Resource: !Sub 'arn:aws:s3:::${ScriptBucket}'
-          - Effect: Allow
-            Action:
-              - s3:Get*
-            Resource: !Sub 'arn:aws:s3:::${ScriptBucket}/${SparkScript}'
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: '*'
           - Effect: Allow
             Action:
               - lambda:InvokeFunction
@@ -168,7 +167,14 @@ Resources:
               - glue:GetTable
               - glue:GetPartitions
               - glue:UpdateTable
+              - glue:CreateTable
+              - glue:BatchCreatePartition
+              - glue:BatchDeletePartition
             Resource: '*'
+          - Effect: Allow
+            Action:
+              - lakeformation:GetDataAccess
+            Resource: '*'    
       Roles:
         - !Ref LambdaRole
 
