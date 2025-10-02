@@ -33,15 +33,7 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     """
     Submits a local Spark script using spark-submit.
     """
-     # Set the environment variables for the Spark application
-    # pyspark_submit_args = event.get('PYSPARK_SUBMIT_ARGS', '')
-    # # Source input and output if available in event
-    # input_path = event.get('INPUT_PATH','')
-    # output_path = event.get('OUTPUT_PATH', '')
 
-    for key,value in event.items():
-        os.environ[key] = value
-    # Run the spark-submit command on the local copy of teh script
     try:
         logger.info(f'Spark-Submitting the Spark script {input_script} from {s3_bucket_script}')
         subprocess.run(["spark-submit", "/tmp/spark_script.py", "--event", json.dumps(event)], check=True, env=os.environ)
@@ -61,10 +53,15 @@ def lambda_handler(event, context):
     """
 
     logger.info("******************Start AWS Lambda Handler************")
+    
     s3_bucket_script = os.environ['SCRIPT_BUCKET']
     input_script = os.environ['SPARK_SCRIPT']
-    os.environ['INPUT_PATH'] = event.get('INPUT_PATH','')
-    os.environ['OUTPUT_PATH'] = event.get('OUTPUT_PATH', '')
+
+    os.environ['CR_TABLE_NAME'] = 'iceberg_curated'
+    os.environ['DATABASE_NAME'] = 'powerup-lakeformation'
+    os.environ['ICB_WG'] = 'iceberg-workgroup-tst'
+    os.environ['LAMBDA_VERSION'] = 'staging'
+    os.environ['RC_TABLE_NAME'] = 'iceberg_records'
 
     s3_script_download(s3_bucket_script,input_script)
     
