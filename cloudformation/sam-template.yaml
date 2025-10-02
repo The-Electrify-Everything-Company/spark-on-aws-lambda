@@ -88,7 +88,6 @@ Resources:
       Description: 'Role used by the lambda running spark'
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-        - "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
         - !If
             - "HasAdditionalPolicy"
             - !Ref SparkLambdapermissionPolicyArn
@@ -127,7 +126,6 @@ Resources:
                 - Region: !Select [3, !Split [".", !Ref ImageUri ]]
                   Account: !Select [0, !Split [".", !Ref ImageUri ]]
                   RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
-
           - Effect: Allow
             Action:
               - s3:ListBucket
@@ -136,6 +134,41 @@ Resources:
             Action:
               - s3:Get*
             Resource: !Sub 'arn:aws:s3:::${ScriptBucket}/${SparkScript}'
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+              - lambda:InvokeAsync
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:SendMessage
+              - sqs:SendMessageBatch
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - athena:StartQueryExecution
+              - athena:GetQueryExecution
+              - athena:GetQueryResults
+              - athena:GetTableMetadata
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:PutObject
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - glue:GetDatabase
+              - glue:GetTable
+              - glue:GetPartitions
+              - glue:UpdateTable
+            Resource: '*'
       Roles:
         - !Ref LambdaRole
 
