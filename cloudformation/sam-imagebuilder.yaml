@@ -7,7 +7,7 @@ Parameters:
     Description: Prefix of the Image Repository to be created
   Framework:
     Type: String
-    Default: HUDI
+    Default: ICEBERG
     Description: Framework jars to download
     AllowedValues:
       - HUDI
@@ -133,7 +133,7 @@ Resources:
                 - echo Downloading requires source files from git
                 - git clone -b develop https://github.com/The-Electrify-Everything-Company/spark-on-aws-lambda.git
                 - cd spark-on-aws-lambda
-                - echo Build started on `date`
+                - echo Build started on `date` $FRAMEWORK
                 - echo Building the Docker image...          
                 - docker build --build-arg FRAMEWORK=$FRAMEWORK -t $IMAGE_REPO_NAME:latest .
                 - docker tag $IMAGE_REPO_NAME:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:latest      
