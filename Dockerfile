@@ -7,8 +7,8 @@ ARG PYSPARK_VERSION=3.5.0
 ARG FRAMEWORK
 ARG DELTA_FRAMEWORK_VERSION=2.2.0
 ARG HUDI_FRAMEWORK_VERSION=0.12.2
-ARG ICEBERG_FRAMEWORK_VERSION=3.5_2.12
-ARG ICEBERG_FRAMEWORK_SUB_VERSION=1.6.1
+ARG ICEBERG_FRAMEWORK_VERSION=3.3_2.12
+ARG ICEBERG_FRAMEWORK_SUB_VERSION=1.0.0
 ARG DEEQU_FRAMEWORK_VERSION=2.0.3-spark-3.3
 ARG AWS_REGION
 
@@ -16,9 +16,6 @@ ENV AWS_REGION=${AWS_REGION}
 
 # System updates and package installation
 COPY download_jars.sh /tmp/
-RUN dnf install -y dos2unix
-RUN dos2unix /tmp/download_jars.sh
-
 RUN set -ex && \
     dnf update -y && \
     dnf install -y wget unzip java-11-amazon-corretto-headless python3-setuptools && \
@@ -39,9 +36,6 @@ RUN set -ex && \
     /tmp/download_jars.sh $FRAMEWORK $SPARK_HOME $HADOOP_VERSION $AWS_SDK_VERSION $DELTA_FRAMEWORK_VERSION $HUDI_FRAMEWORK_VERSION $ICEBERG_FRAMEWORK_VERSION $ICEBERG_FRAMEWORK_SUB_VERSION $DEEQU_FRAMEWORK_VERSION && \
     rm -rf /tmp/* /var/tmp/*
 
-RUN dnf install -y freetype freetype-devel fontconfig libXrender libXext procps
-
-
 # Copy requirements.txt if present and install
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 RUN if [ -f "${LAMBDA_TASK_ROOT}/requirements.txt" ]; then pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt; fi
@@ -56,6 +50,7 @@ RUN if [ -f log4j.properties ]; then cp log4j.properties /var/lang/lib/python3.1
 
 RUN set -ex && \
     dnf update -y && \
+    dnf install -y java-11-amazon-corretto-headless && \
     dnf clean all && \
     rm -rf /var/cache/dnf /tmp/* /var/tmp/* && \
     chmod -R 755 /home/glue_functions /var/lang/lib/python3.12/site-packages/pyspark && \
@@ -67,8 +62,8 @@ RUN set -ex && \
 
 ENV SPARK_HOME="/var/lang/lib/python3.12/site-packages/pyspark" \
     SPARK_VERSION=3.5.0 \
-    JAVA_HOME="/usr/lib/jvm/java-11-amazon-corretto.x86_64" \
-    PATH="$PATH:/var/lang/lib/python3.12/site-packages/pyspark/bin:/var/lang/lib/python3.12/site-packages/pyspark/sbin:/usr/lib/jvm/java-11-amazon-corretto.x86_64/bin" \
+    JAVA_HOME="/usr/lib/jvm/java-11-amazon-corretto" \
+    PATH="$PATH:/var/lang/lib/python3.12/site-packages/pyspark/bin:/var/lang/lib/python3.12/site-packages/pyspark/sbin:/usr/lib/jvm/java-11-amazon-corretto/bin" \
     PYTHONPATH="/var/lang/lib/python3.12/site-packages/pyspark/python:/var/lang/lib/python3.12/site-packages/pyspark/python/lib/py4j-0.10.9.7-src.zip:/home/glue_functions" \
     INPUT_PATH="" \
     OUTPUT_PATH="" \
@@ -78,6 +73,5 @@ RUN java -version
 
 RUN chmod 755 ${LAMBDA_TASK_ROOT}/sparkLambdaHandler.py
 RUN chmod 755 ${LAMBDA_TASK_ROOT}/test.py
-RUN dos2unix /var/lang/lib/python3.12/site-packages/pyspark/bin/*
-RUN dos2unix /var/lang/lib/python3.12/site-packages/pyspark/conf/*.sh
+
 CMD [ "sparkLambdaHandler.lambda_handler" ]

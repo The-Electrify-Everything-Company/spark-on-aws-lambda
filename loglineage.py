@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -202,12 +203,12 @@ def main(event):
         # logger.error(f"Event data: {json.dumps(event, indent=2)}")
         raise
 
-# if __name__ == '__main__':
-#     logger.info("lineage logger started")
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("--event",
-#                         help="event data from lambda")
-#     args = parser.parse_args()
-#     event_data = json.loads(args.event)
-#     main(event_data)
+if __name__ == '__main__':
+    logger.info("lineage logger started")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--event",
+                        help="event data from lambda")
+    args = parser.parse_args()
+    event_data = json.loads(args.event)
+    main(event_data)
     

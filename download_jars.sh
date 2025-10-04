@@ -11,21 +11,11 @@ DEEQU_FRAMEWORK_VERSION=$9
 
 mkdir $SPARK_HOME/conf
 echo "SPARK_LOCAL_IP=127.0.0.1" > $SPARK_HOME/conf/spark-env.sh
-echo "JAVA_HOME=/usr/lib/jvm/$(ls /usr/lib/jvm |grep java)" >> $SPARK_HOME/conf/spark-env.sh
+echo "JAVA_HOME=/usr/lib/jvm/$(ls /usr/lib/jvm |grep java)/jre" >> $SPARK_HOME/conf/spark-env.sh
 
 # Download core S3 filesystem JARs with updated versions
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
 wget -q https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/org/codehaus/woodstox/woodstox-core-asl/4.4.1/woodstox-core-asl-4.4.1.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/org/codehaus/woodstox/stax2-api/4.2.1/stax2-api-4.2.1.jar -P ${SPARK_HOME}/jars/
-# Apache Commons Configuration 2
-wget https://repo1.maven.org/maven2/org/apache/commons/commons-configuration2/2.9.0/commons-configuration2-2.9.0.jar -P $SPARK_HOME/jars/
-
-# Also add its dependencies
-wget https://repo1.maven.org/maven2/org/apache/commons/commons-text/1.10.0/commons-text-1.10.0.jar -P $SPARK_HOME/jars/
-wget https://repo1.maven.org/maven2/commons-logging/commons-logging/1.2/commons-logging-1.2.jar -P $SPARK_HOME/jars/
-wget https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.jar -P $SPARK_HOME/jars/
-
 
 # Additional JARs for better S3 compatibility
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-common/${HADOOP_VERSION}/hadoop-common-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
