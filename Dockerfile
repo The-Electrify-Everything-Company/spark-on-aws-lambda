@@ -1,7 +1,7 @@
 FROM public.ecr.aws/lambda/python:3.12
 
 # Build arguments - consolidated at top
-ARG HADOOP_VERSION=3.3.6
+ARG HADOOP_VERSION=3.3.5
 ARG AWS_SDK_VERSION=1.12.261
 ARG PYSPARK_VERSION=3.5.0
 ARG FRAMEWORK
