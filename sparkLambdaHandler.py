@@ -66,11 +66,25 @@ def lambda_handler(event, context):
 
     logger.info("******************Start AWS Lambda Handler************")
     
-    s3_bucket_script = os.environ['SCRIPT_BUCKET']
-    input_script = os.environ['SPARK_SCRIPT']
+    # s3_bucket_script = os.environ['SCRIPT_BUCKET']
+    # input_script = os.environ['SPARK_SCRIPT']
 
-    s3_script_download(s3_bucket_script,input_script)
+    # s3_script_download(s3_bucket_script,input_script)
     
-    # Set the environment variables for the Spark application
-    spark_submit(s3_bucket_script,input_script, event)
+    # # Set the environment variables for the Spark application
+    # spark_submit(s3_bucket_script,input_script, event)
+    try:
+        logger.info(f'Spark-Submitting the Spark script')
+        subprocess.run(
+            ["spark-submit", "/var/task/test.py", "--event", json.dumps(event)],
+            check=True,
+            env=os.environ,
+            stdout=sys.stdout,
+            stderr=sys.stderr
+        )
+    except Exception as e :
+        logger.error(f'Error Spark-Submit with exception: {e}')
+        raise e
+    else:
+        logger.info(f'Script  successfully submitted')
    

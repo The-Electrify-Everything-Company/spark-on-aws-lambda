@@ -149,7 +149,6 @@ def create_iceberg_spark_session():
         .config("spark.sql.catalog.glue_catalog.warehouse", "s3://apache-iceberg-datalineage-533267385393-tst/" ) \
         .config("spark.sql.defaultCatalog", "glue_catalog" ) \
         .config("spark.sql.catalog.glue_catalog.glue.skip-name-validation", True) \
-        .config("spark.hadoop.fs.s3a.aws.credentials.provider","org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider") \
         .config("spark.sql.catalog.glue_catalog.lock-impl", "org.apache.iceberg.aws.glue.DynamoLockManager") \
         .config("spark.sql.catalog.glue_catalog.lock.table", "lineage_lock_table-tst") \
         .config("spark.sql.catalog.glue_catalog.commit.retry.num-retries", "10") \
