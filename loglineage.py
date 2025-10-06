@@ -1,4 +1,5 @@
 import argparse
+import time
 import json
 import logging
 import os
@@ -17,8 +18,8 @@ class Record:
     origin: str = ""
     destination: str = ""
     metadata: Dict[str, str] = None
-    actor: str = ""  
-    action: str = ""
+    actorid: str = ""  
+    actionid: str = ""
     urids: Optional[List[str]] = None  # Only for "curated"
     totalenergy: Optional[float] = None  # Only for "curated"
     date: Optional[str] = None # Only for "curated"
@@ -59,6 +60,8 @@ RC_TABLE_NAME = os.environ['RC_TABLE_NAME']
 CR_TABLE_NAME = os.environ['CR_TABLE_NAME']
 ICEBERG_WORKGROUP = os.environ['ICB_WG']
 
+# _spark = None
+
 def batch_write_records(records: list[Record], table: str, spark):
     logger.info(f"called batch write on table ::: {table}")
     if not records:
@@ -80,7 +83,6 @@ def batch_write_records(records: list[Record], table: str, spark):
     
     elif table == CR_TABLE_NAME:
         schema = StructType([
-            StructField("sn", StringType(), nullable=True),
             StructField("origin", StringType(), nullable=True),
             StructField("destination", StringType(), nullable=True),
             StructField("metadata", MapType(StringType(), StringType()), nullable=True),
@@ -96,6 +98,8 @@ def batch_write_records(records: list[Record], table: str, spark):
 
     # Create DataFrame
     df = spark.createDataFrame(records, schema=schema)
+    if table == CR_TABLE_NAME:
+        df = df.withColumnRenamed("createdat", "timestamp")
 
     # df.createOrReplaceTempView("tmp_df")
     # spark.sql(f"""
@@ -112,26 +116,31 @@ def batch_write_records(records: list[Record], table: str, spark):
                             .append()
     logger.info(f"log lineage success :::: table {table} : count : {len(records)}")
 
+
+# def get_spark_session():
+#     global _spark
+#     if _spark is None:
+#         _spark = create_iceberg_spark_session()
+#     return _spark
+
+
 def create_iceberg_spark_session():
     """Create Spark session optimized for Lambda with Iceberg support"""
-
-    aws_access_key_id = os.environ['AWS_ACCESS_KEY_ID']
-    aws_secret_access_key = os.environ['AWS_SECRET_ACCESS_KEY']
-    session_token = os.environ['AWS_SESSION_TOKEN']
+    # aws_access_key_id = os.environ['AWS_ACCESS_KEY_ID']
+    # aws_secret_access_key = os.environ['AWS_SECRET_ACCESS_KEY']
+    # session_token = os.environ['AWS_SESSION_TOKEN']
     aws_region = os.environ['AWS_REGION']
 
     logger.info(f"Creating Spark session with Iceberg configuration...")
-    
+    time.sleep(2)
     spark = SparkSession.builder \
         .appName("Spark-on-AWS-Lambda") \
         .master("local[*]") \
-        .config("spark.driver.bindAddress", "127.0.0.1") \
-        .config("spark.driver.host", "127.0.0.1") \
+        .config("spark.driver.bindAddress", "0.0.0.0") \
         .config("spark.driver.memory", "1g") \
         .config("spark.executor.memory", "1g") \
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
-        .config("spark.sql.adaptive.enabled", "true") \
-        .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+        .config("spark.python.worker.reuse", "false") \
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
         .config("spark.sql.catalog.glue_catalog", "org.apache.iceberg.spark.SparkCatalog") \
         .config("spark.sql.catalog.glue_catalog.glue.region", aws_region) \
@@ -141,6 +150,10 @@ def create_iceberg_spark_session():
         .config("spark.sql.defaultCatalog", "glue_catalog" ) \
         .config("spark.sql.catalog.glue_catalog.glue.skip-name-validation", True) \
         .config("spark.hadoop.fs.s3a.aws.credentials.provider","org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider") \
+        .config("spark.sql.catalog.glue_catalog.lock-impl", "org.apache.iceberg.aws.glue.DynamoLockManager") \
+        .config("spark.sql.catalog.glue_catalog.lock.table", "lineage_lock_table-tst") \
+        .config("spark.sql.catalog.glue_catalog.commit.retry.num-retries", "10") \
+        .config("spark.sql.catalog.glue_catalog.commit.retry.min-wait-ms", "2000") \
         .getOrCreate()
 
     # spark = SparkSession.builder \
@@ -181,8 +194,8 @@ def main(event):
                 origin=payload.get('source', ''),
                 destination=payload.get('destination', ''),
                 metadata=payload.get('metadata', {}),
-                actor=payload.get('actor', ''),
-                action=payload.get('action', ''),
+                actorid=payload.get('actor', ''),
+                actionid=payload.get('action', ''),
                 createdat=payload.get('created_at'),
                 date=payload.get('date', ''),
                 urids=payload.get('urids', [])
@@ -197,9 +210,13 @@ def main(event):
             batch_write_records(records,RC_TABLE_NAME,spark)
         if curated:
             batch_write_records(curated, CR_TABLE_NAME,spark)
-        
+        spark.stop()
     except Exception as e:
         logger.error(f"Error processing log event: {str(e)}")
+        try:
+            spark.stop()
+        except:
+            pass
         # logger.error(f"Event data: {json.dumps(event, indent=2)}")
         raise
 

@@ -89,6 +89,7 @@ Resources:
       Description: 'Role used by the lambda running spark'
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
         - !If
             - "HasAdditionalPolicy"
             - !Ref SparkLambdapermissionPolicyArn
