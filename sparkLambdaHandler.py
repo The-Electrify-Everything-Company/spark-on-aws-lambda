@@ -40,9 +40,9 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     """
     Submits a local Spark script using spark-submit.
     """
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".json", dir="/tmp") as tmpfile:
-                json.dump(event, tmpfile)
-                tmpfile_path = tmpfile.name
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", dir="/tmp") as tmpfile:
+        json.dump(event, tmpfile)
+        tmpfile_path = tmpfile.name
     try:
         logger.info(f'Spark-Submitting the Spark script {input_script} from {s3_bucket_script}')
         subprocess.run(
