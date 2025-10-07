@@ -150,6 +150,10 @@ def create_iceberg_spark_session():
         .config("spark.sql.defaultCatalog", "glue_catalog" ) \
         .config("spark.sql.catalog.glue_catalog.glue.skip-name-validation", True) \
         .config("spark.hadoop.fs.s3a.aws.credentials.provider","org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider") \
+        .config("spark.sql.catalog.glue_catalog.lock-impl","org.apache.iceberg.aws.dynamodb.DynamoDbLockManager") \
+        .config("spark.sql.catalog.glue_catalog.lock.table", "iceberg_lock_table") \
+        .config("spark.sql.catalog.glue_catalog.commit.retry.num-retries", "10") \
+        .config("spark.sql.catalog.glue_catalog.commit.retry.min-wait-ms", "2000") \
         .getOrCreate()
 
     # spark = SparkSession.builder \
@@ -220,11 +224,13 @@ def main(event):
         raise
 
 if __name__ == '__main__':
+
     logger.info("lineage logger started")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--event",
+    parser.add_argument("--event-file",
                         help="event data from lambda")
     args = parser.parse_args()
-    event_data = json.loads(args.event)
-    main(event_data)
+    with open(args.event_file) as f:
+        event = json.load(f)
+    main(event)
     

@@ -1,10 +1,11 @@
 import importlib
+import json
 import boto3
 import sys
 import os
 import subprocess
 import logging
-import json
+import tempfile
 
 # Set up logging
 logger = logging.getLogger()
@@ -39,11 +40,13 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     """
     Submits a local Spark script using spark-submit.
     """
-
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".json", dir="/tmp") as tmpfile:
+                json.dump(event, tmpfile)
+                tmpfile_path = tmpfile.name
     try:
         logger.info(f'Spark-Submitting the Spark script {input_script} from {s3_bucket_script}')
         subprocess.run(
-            ["spark-submit", "/tmp/spark_script.py", "--event", json.dumps(event)],
+            ["spark-submit", "/tmp/spark_script.py", "--event-file", tmpfile_path],
             check=True,
             env=os.environ,
             stdout=sys.stdout,
@@ -52,8 +55,9 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     except Exception as e :
         logger.error(f'Error Spark-Submit with exception: {e}')
         raise e
-    else:
+    finally:
         logger.info(f'Script {input_script} successfully submitted')
+        os.remove(tmpfile_path)
 
 def lambda_handler(event, context):
 
