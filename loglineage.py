@@ -137,7 +137,7 @@ def create_iceberg_spark_session():
         .appName("Spark-on-AWS-Lambda") \
         .master("local[*]") \
         .config("spark.driver.bindAddress", "0.0.0.0") \
-        .config("spark.driver.memory", "1g") \
+        .config("spark.driver.memory", "512m") \
         .config("spark.executor.memory", "1g") \
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
         .config("spark.python.worker.reuse", "false") \
