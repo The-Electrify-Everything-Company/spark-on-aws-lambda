@@ -200,6 +200,8 @@ def main(event):
                 type=payload.get('type'),
                 sn=payload.get('SN'),
                 totalenergy=float(payload.get('totalenergy', '0.0')),
+                totalcookingtime=float(payload.get('totalcookingtime', '0.0')),
+                source=payload.get('recordsource',''),
                 cid=CID,
                 origin=payload.get('source', ''),
                 destination=payload.get('destination', ''),
