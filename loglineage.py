@@ -46,7 +46,7 @@ class Record:
             hash_data.update({ "urid": self.urid, "sn" : self.sn, "CID": self.cid,})
         elif self.type == "curated":
             self.urid = f"{self.sn}-{self.date}"
-            hash_data.update({"urid": self.urid,  "date":self.date, "total_energy": self.totalenergy,"total_cooking_time": self.totalcookingtime, "urids":self.urids })
+            hash_data.update({"urid": self.urid,  "date":self.date, "total_energy": self.totalenergy,"total_cooking_time": self.totalcookingtime, "urids":self.urids, "source": self.source })
 
         # Convert to JSON string and compute SHA-256 hash
         hash_str = json.dumps(hash_data, sort_keys=True).encode('utf-8')
