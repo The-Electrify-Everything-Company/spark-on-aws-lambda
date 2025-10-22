@@ -146,7 +146,7 @@ def create_iceberg_spark_session():
         .config("spark.sql.catalog.glue_catalog.glue.region", aws_region) \
         .config("spark.sql.catalog.glue_catalog.io-impl", "org.apache.iceberg.aws.s3.S3FileIO") \
         .config("spark.sql.catalog.glue_catalog.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog") \
-        .config("spark.sql.catalog.glue_catalog.warehouse", "s3://apache-iceberg-datalineage-533267385393-tst/" ) \
+        .config("spark.sql.catalog.glue_catalog.warehouse", "s3://apache-iceberg-datalineage-590183814935/" ) \
         .config("spark.sql.defaultCatalog", "glue_catalog" ) \
         .config("spark.sql.catalog.glue_catalog.glue.skip-name-validation", True) \
         .config("spark.hadoop.fs.s3a.aws.credentials.provider","org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider") \
@@ -199,7 +199,7 @@ def main(event):
                 metadata=payload.get('metadata', {}),
                 actorid=payload.get('actor', ''),
                 actionid=payload.get('action', ''),
-                createdat=payload.get('created_at'),
+                createdat=float(payload.get('created_at','0.0')),
                 date=payload.get('date', ''),
                 urids=payload.get('urids', [])
             )

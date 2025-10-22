@@ -38,7 +38,7 @@ Parameters:
     Type: Number
   LambdaMemory:
     Description: 'Optional: Lambda memory in MB (min 128 - 10,240 max).'
-    Default: 5000
+    Default: 3008
     Type: Number
   SparkLambdapermissionPolicyArn:
     Description: 'Optional: Arn of the policy that contains the permissions your spark job will need to run successfully'
@@ -85,7 +85,7 @@ Resources:
   LambdaRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: soal-lineage-loger-role-tst
+      RoleName: soal-lineage-loger-role
       Description: 'Role used by the lambda running spark'
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -218,6 +218,6 @@ Resources:
           CR_TABLE_NAME: 'iceberg_curated'
           DATABASE_NAME: 'powerup-lakeformation'
           ICB_WG: 'iceberg-workgroup'
-          LAMBDA_VERSION: '1.0.8'
+          LAMBDA_VERSION: 'v1.0.8'
           RC_TABLE_NAME: 'iceberg_records'
 
