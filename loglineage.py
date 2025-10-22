@@ -22,6 +22,8 @@ class Record:
     actionid: str = ""
     urids: Optional[List[str]] = None  # Only for "curated"
     totalenergy: Optional[float] = None  # Only for "curated"
+    totalcookingtime: Optional[float] = None  # Only for "curated"
+    source: Optional[str] = None  # Only for "curated"
     date: Optional[str] = None # Only for "curated"
     # Auto-generated fields
     urid: str = "" # Will be computed in __post_init__
@@ -31,15 +33,20 @@ class Record:
     def __post_init__(self):
         """Compute recordhash from SN, CID (or urids if curated) + createdat."""
         hash_data = {
-            "sn"    : self.sn,
+            "actor_id": self.actorid,
+            "action_id": self.actionid,
+            "origin": self.origin,
+            "destination": self.destination,
+            "createdat":self.createdat,
+            "metadata":self.metadata,
         }
 
         if self.type == "record":
             self.urid = f"{self.sn}-{self.cid}"
-            hash_data.update({ "CID": self.cid, "urid": self.urid})
+            hash_data.update({ "urid": self.urid, "sn" : self.sn, "CID": self.cid,})
         elif self.type == "curated":
             self.urid = f"{self.sn}-{self.date}"
-            hash_data.update({"date": self.date, "total_energy": self.totalenergy})
+            hash_data.update({"urid": self.urid,  "date":self.date, "total_energy": self.totalenergy,"total_cooking_time": self.totalcookingtime, "urids":self.urids })
 
         # Convert to JSON string and compute SHA-256 hash
         hash_str = json.dumps(hash_data, sort_keys=True).encode('utf-8')
