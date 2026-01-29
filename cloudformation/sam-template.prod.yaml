@@ -218,6 +218,7 @@ Resources:
           CR_TABLE_NAME: 'iceberg_curated'
           DATABASE_NAME: 'powerup-lakeformation'
           ICB_WG: 'iceberg-workgroup'
-          LAMBDA_VERSION: 'v1.0.8'
+          LAMBDA_VERSION: 'v1.2.0'
           RC_TABLE_NAME: 'iceberg_records'
+          WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-590183814935/'
 

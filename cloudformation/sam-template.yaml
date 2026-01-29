@@ -220,4 +220,5 @@ Resources:
           ICB_WG: 'iceberg-workgroup-tst'
           LAMBDA_VERSION: 'staging'
           RC_TABLE_NAME: 'iceberg_records'
+          WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-533267385393-tst/'
 
