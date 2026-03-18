@@ -1,6 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
 Parameters:
+  BuildTrigger:
+    Type: String
+    Default: v1
   ImageRepoPrefix:
     Type: String
     Default: sparkonlambda
@@ -210,6 +213,7 @@ Resources:
     Type: Custom::InvokeImageBuildLambda
     Properties:
       ServiceToken: !GetAtt ImageBuildLambda.Arn
+      BuildTrigger: !Ref BuildTrigger
 Outputs:
   ImageRepoName:
     Description: ECR image Repository

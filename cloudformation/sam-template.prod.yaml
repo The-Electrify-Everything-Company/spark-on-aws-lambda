@@ -150,6 +150,15 @@ Resources:
             Resource: '*'
           - Effect: Allow
             Action:
+              - dynamodb:PutItem
+              - dynamodb:GetItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:BatchGetItem
+            Resource: '*'
+          - Effect: Allow
+            Action:
               - athena:StartQueryExecution
               - athena:GetQueryExecution
               - athena:GetQueryResults
@@ -218,7 +227,8 @@ Resources:
           CR_TABLE_NAME: 'iceberg_curated'
           DATABASE_NAME: 'powerup-lakeformation'
           ICB_WG: 'iceberg-workgroup'
-          LAMBDA_VERSION: 'v1.2.0'
+          LAMBDA_VERSION: 'v1.1.4'
           RC_TABLE_NAME: 'iceberg_records'
           WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-590183814935/'
+          LINEAGE_VERIFY_TABLE: 'lineage_verify'
 

@@ -137,6 +137,15 @@ Resources:
             Resource: '*'
           - Effect: Allow
             Action:
+              - dynamodb:PutItem
+              - dynamodb:GetItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:BatchGetItem
+            Resource: '*'
+          - Effect: Allow
+            Action:
               - lambda:InvokeFunction
               - lambda:InvokeAsync
             Resource: '*'
@@ -221,4 +230,7 @@ Resources:
           LAMBDA_VERSION: 'staging'
           RC_TABLE_NAME: 'iceberg_records'
           WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-533267385393-tst/'
+          LINEAGE_VERIFY_TABLE: 'lineage_verify-tst'
+          Rebuild: 'v1'
+
 

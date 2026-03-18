@@ -45,13 +45,18 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
         tmpfile_path = tmpfile.name
     try:
         logger.info(f'Spark-Submitting the Spark script {input_script} from {s3_bucket_script}')
-        subprocess.run(
+        result = subprocess.run(
             ["spark-submit", "/tmp/spark_script.py", "--event-file", tmpfile_path],
             check=True,
             env=os.environ,
-            stdout=sys.stdout,
-            stderr=sys.stderr
+            capture_output=True,
+            text=True
         )
+        logger.info("=== SUBPROCESS STDOUT ===")
+        logger.info(result.stdout)
+
+        logger.info("=== SUBPROCESS STDERR ===")
+        logger.error(result.stderr)
     except Exception as e :
         logger.error(f'Error Spark-Submit with exception: {e}')
         raise e
