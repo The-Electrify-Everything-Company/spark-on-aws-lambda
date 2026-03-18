@@ -18,6 +18,9 @@ Metadata:
     SourceCodeUrl: 'https://github.com/aws-samples/spark-on-aws-lambda'
 
 Parameters:
+  BuildTrigger:
+    Type: String
+    Default: v1
   ImageUri:
     Description: 'Mandatory: ECR Uri for the image. If not present, then create and push using the sam-imagebuilder.yaml in the github https://github.com/aws-samples/spark-on-aws-lambda '
     Type: String
@@ -231,6 +234,6 @@ Resources:
           RC_TABLE_NAME: 'iceberg_records'
           WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-533267385393-tst/'
           LINEAGE_VERIFY_TABLE: 'lineage_verify-tst'
-          Rebuild: 'v1'
+          Rebuild: !Ref BuildTrigger
 
 
