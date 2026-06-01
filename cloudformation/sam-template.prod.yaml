@@ -195,7 +195,7 @@ Resources:
       PackageType: Image
       FunctionName: !Sub '${LambdaFunctionPrefix}-${AWS::StackName}'
       ImageUri: !Ref ImageUri
-      ReservedConcurrentExecutions: 1
+      # ReservedConcurrentExecutions: 1
       ImageConfig:
         Command: !Ref Command
         EntryPoint:
