@@ -43,31 +43,31 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", dir="/tmp") as tmpfile:
         json.dump(event, tmpfile)
         tmpfile_path = tmpfile.name
+    log_path = tmpfile_path + ".log"
     try:
         logger.info(f'Spark-Submitting the Spark script {input_script} from {s3_bucket_script}')
-        result = subprocess.run(
-            ["spark-submit", "/tmp/spark_script.py", "--event-file", tmpfile_path],
-            check=True,
-            env=os.environ,
-            capture_output=True,
-            text=True
-        )
-        logger.info("=== SUBPROCESS STDOUT ===")
-        logger.info(result.stdout)
-
-        logger.info("=== SUBPROCESS STDERR ===")
-        logger.error(result.stderr)
+        with open(log_path, "w") as log_file:
+            result = subprocess.run(
+                ["spark-submit", "/tmp/spark_script.py", "--event-file", tmpfile_path],
+                check=True,
+                env=os.environ,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
         logger.info(f'Script {input_script} successfully submitted')
     except subprocess.CalledProcessError as e:
         logger.error(f'spark-submit failed (exit {e.returncode}) for {input_script}')
-        logger.error("=== SUBPROCESS STDOUT ===\n%s", e.stdout)
-        logger.error("=== SUBPROCESS STDERR ===\n%s", e.stderr)
+        with open(log_path) as log_file:
+            logger.error("=== SUBPROCESS OUTPUT ===\n%s", log_file.read())
         raise
     except Exception as e :
         logger.error(f'Error Spark-Submit with exception: {e}')
         raise e
     finally:
         os.remove(tmpfile_path)
+        if os.path.exists(log_path):
+            os.remove(log_path)
 
 def lambda_handler(event, context):
 
