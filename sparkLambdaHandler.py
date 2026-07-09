@@ -57,11 +57,16 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
 
         logger.info("=== SUBPROCESS STDERR ===")
         logger.error(result.stderr)
+        logger.info(f'Script {input_script} successfully submitted')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'spark-submit failed (exit {e.returncode}) for {input_script}')
+        logger.error("=== SUBPROCESS STDOUT ===\n%s", e.stdout)
+        logger.error("=== SUBPROCESS STDERR ===\n%s", e.stderr)
+        raise
     except Exception as e :
         logger.error(f'Error Spark-Submit with exception: {e}')
         raise e
     finally:
-        logger.info(f'Script {input_script} successfully submitted')
         os.remove(tmpfile_path)
 
 def lambda_handler(event, context):
