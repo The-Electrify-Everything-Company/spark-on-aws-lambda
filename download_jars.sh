@@ -17,6 +17,17 @@ echo "JAVA_HOME=/usr/lib/jvm/$(ls /usr/lib/jvm |grep java)/jre" >> $SPARK_HOME/c
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
 wget -q https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar -P ${SPARK_HOME}/jars/
 
+# Woodstox StAX provider that hadoop-common's Configuration needs at Spark bootstrap
+# (NoClassDefFoundError: com/ctc/wstx/io/InputBootstrapper otherwise). Versions pinned
+# to what hadoop-common:${HADOOP_VERSION}'s own POM declares.
+wget -q https://repo1.maven.org/maven2/com/fasterxml/woodstox/woodstox-core/5.4.0/woodstox-core-5.4.0.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/org/codehaus/woodstox/stax2-api/4.2.1/stax2-api-4.2.1.jar -P ${SPARK_HOME}/jars/
+
+# commons-configuration2 that hadoop-common's metrics2/UserGroupInformation needs at
+# SparkContext init (NoClassDefFoundError: org/apache/commons/configuration2/Configuration
+# otherwise). Version pinned to what hadoop-common:${HADOOP_VERSION}'s own POM declares.
+wget -q https://repo1.maven.org/maven2/org/apache/commons/commons-configuration2/2.8.0/commons-configuration2-2.8.0.jar -P ${SPARK_HOME}/jars/
+
 # Additional JARs for better S3 compatibility
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-common/${HADOOP_VERSION}/hadoop-common-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-client/${HADOOP_VERSION}/hadoop-client-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
