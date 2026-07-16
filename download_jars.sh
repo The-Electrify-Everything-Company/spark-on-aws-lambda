@@ -110,8 +110,9 @@ cat > ${SPARK_HOME}/conf/core-site.xml << EOL
 EOL
 
 # Add AWS SDK v2components for better S3 compatibility
-# Bumped 2.20.56 -> 2.31.78 to clear CVE-2026-42581/CVE-2026-42584 (netty-codec-http RCE/smuggling)
-AWS_SDK_V2_VERSION=2.31.78
+# Bumped 2.20.56 -> 2.48.1 to clear CVE-2026-42581/CVE-2026-42584 (netty-codec-http RCE/smuggling):
+# 2.31.78 still shaded netty 4.1.118.Final (unfixed); 2.48.1 shades netty 4.1.135.Final (fixed)
+AWS_SDK_V2_VERSION=2.48.1
 wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/s3/${AWS_SDK_V2_VERSION}/s3-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
 wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/utils/${AWS_SDK_V2_VERSION}/utils-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
 wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/auth/${AWS_SDK_V2_VERSION}/auth-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
@@ -156,9 +157,9 @@ echo $fw
             ;;
         ICEBERG)
             wget -q https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-${ICEBERG_FRAMEWORK_VERSION}/${ICEBERG_FRAMEWORK_SUB_VERSION}/iceberg-spark-runtime-${ICEBERG_FRAMEWORK_VERSION}-${ICEBERG_FRAMEWORK_SUB_VERSION}.jar -P ${SPARK_HOME}/jars/
-            # Bumped 2.20.23 -> 2.31.78 to clear CVE-2026-42581/CVE-2026-42584 (netty-codec-http)
-            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.31.78/bundle-2.31.78.jar -P ${SPARK_HOME}/jars/
-            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/url-connection-client/2.31.78/url-connection-client-2.31.78.jar -P ${SPARK_HOME}/jars/
+            # Bumped 2.20.23 -> 2.48.1 to clear CVE-2026-42581/CVE-2026-42584 (netty-codec-http)
+            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.48.1/bundle-2.48.1.jar -P ${SPARK_HOME}/jars/
+            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/url-connection-client/2.48.1/url-connection-client-2.48.1.jar -P ${SPARK_HOME}/jars/
             # wget -q https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/${ICEBERG_FRAMEWORK_SUB_VERSION}/iceberg-aws-bundle-${ICEBERG_FRAMEWORK_SUB_VERSION}.jar -P ${SPARK_HOME}/jars/
             ;;
         SNOWFLAKE)
