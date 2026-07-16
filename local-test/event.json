@@ -1,0 +1,7 @@
+{
+  "Records": [
+    {
+      "body": "{\"type\":\"record\",\"SN\":\"LOCALTEST-000\",\"CID\":\"1\",\"actor\":\"local\",\"action\":\"local\",\"source\":\"local\",\"destination\":\"local\",\"created_at\":\"0\",\"metadata\":{}}"
+    }
+  ]
+}
