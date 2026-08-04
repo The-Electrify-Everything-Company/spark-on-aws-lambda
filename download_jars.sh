@@ -17,6 +17,17 @@ echo "JAVA_HOME=/usr/lib/jvm/$(ls /usr/lib/jvm |grep java)/jre" >> $SPARK_HOME/c
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
 wget -q https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar -P ${SPARK_HOME}/jars/
 
+# Woodstox StAX provider that hadoop-common's Configuration needs at Spark bootstrap
+# (NoClassDefFoundError: com/ctc/wstx/io/InputBootstrapper otherwise). Versions pinned
+# to what hadoop-common:${HADOOP_VERSION}'s own POM declares.
+wget -q https://repo1.maven.org/maven2/com/fasterxml/woodstox/woodstox-core/5.4.0/woodstox-core-5.4.0.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/org/codehaus/woodstox/stax2-api/4.2.1/stax2-api-4.2.1.jar -P ${SPARK_HOME}/jars/
+
+# commons-configuration2 that hadoop-common's metrics2/UserGroupInformation needs at
+# SparkContext init (NoClassDefFoundError: org/apache/commons/configuration2/Configuration
+# otherwise). Version pinned to what hadoop-common:${HADOOP_VERSION}'s own POM declares.
+wget -q https://repo1.maven.org/maven2/org/apache/commons/commons-configuration2/2.8.0/commons-configuration2-2.8.0.jar -P ${SPARK_HOME}/jars/
+
 # Additional JARs for better S3 compatibility
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-common/${HADOOP_VERSION}/hadoop-common-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
 wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-client/${HADOOP_VERSION}/hadoop-client-${HADOOP_VERSION}.jar -P ${SPARK_HOME}/jars/
@@ -110,18 +121,35 @@ cat > ${SPARK_HOME}/conf/core-site.xml << EOL
 EOL
 
 # Add AWS SDK v2components for better S3 compatibility
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/s3/2.20.56/s3-2.20.56.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/utils/2.20.56/utils-2.20.56.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/auth/2.20.56/auth-2.20.56.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/http-client-spi/2.20.56/http-client-spi-2.20.56.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/regions/2.20.56/regions-2.20.56.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/sdk-core/2.20.56/sdk-core-2.20.56.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/apache-client/2.20.56/apache-client-2.20.56.jar -P ${SPARK_HOME}/jars/
-wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/aws-core/2.20.56/aws-core-2.20.56.jar -P ${SPARK_HOME}/jars/
+# Bumped 2.20.56 -> 2.48.1 to clear CVE-2026-42581/CVE-2026-42584 (netty-codec-http RCE/smuggling):
+# 2.31.78 still shaded netty 4.1.118.Final (unfixed); 2.48.1 shades netty 4.1.135.Final (fixed)
+AWS_SDK_V2_VERSION=2.48.1
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/s3/${AWS_SDK_V2_VERSION}/s3-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/utils/${AWS_SDK_V2_VERSION}/utils-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/auth/${AWS_SDK_V2_VERSION}/auth-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/http-client-spi/${AWS_SDK_V2_VERSION}/http-client-spi-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/regions/${AWS_SDK_V2_VERSION}/regions-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/sdk-core/${AWS_SDK_V2_VERSION}/sdk-core-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/apache-client/${AWS_SDK_V2_VERSION}/apache-client-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
+wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/aws-core/${AWS_SDK_V2_VERSION}/aws-core-${AWS_SDK_V2_VERSION}.jar -P ${SPARK_HOME}/jars/
 
 # jar files needed to conncet to Snowflake
 #wget -q https://repo1.maven.org/maven2/net/snowflake/spark-snowflake_2.12/2.12.0-spark_3.3/spark-snowflake_2.12-2.12.0-spark_3.3.jar -P ${SPARK_HOME}/jars/
 #wget -q https://repo1.maven.org/maven2/net/snowflake/snowflake-jdbc/3.13.33/snowflake-jdbc-3.13.33.jar -P ${SPARK_HOME}/jars/
+
+# Replace the netty-codec-http bundled by pyspark to clear CVE-2026-42581/CVE-2026-42584
+# (HTTP request smuggling / RCE). 4.1.133.Final is the fixed release on the 4.1.x line,
+# so it drops in alongside the other netty 4.1.x jars pyspark ships without an API break.
+rm -f ${SPARK_HOME}/jars/netty-codec-http-*.jar
+wget -q https://repo1.maven.org/maven2/io/netty/netty-codec-http/4.1.133.Final/netty-codec-http-4.1.133.Final.jar -P ${SPARK_HOME}/jars/
+
+# Remove jars for components never used in Lambda local-mode spark-submit (no ZooKeeper
+# ensemble, no Hive metastore) to close CVE-2023-44981, CVE-2022-46337 and CVE-2019-10202
+# (jackson-mapper-asl has no patched release, so deletion is the only fix)
+rm -f ${SPARK_HOME}/jars/zookeeper-*.jar
+rm -f ${SPARK_HOME}/jars/derby-*.jar
+rm -f ${SPARK_HOME}/jars/jackson-mapper-asl-*.jar
+rm -f ${SPARK_HOME}/jars/jackson-core-asl-*.jar
 
 echo 'Framework is:'
 echo $FRAMEWORK
@@ -140,8 +168,9 @@ echo $fw
             ;;
         ICEBERG)
             wget -q https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-${ICEBERG_FRAMEWORK_VERSION}/${ICEBERG_FRAMEWORK_SUB_VERSION}/iceberg-spark-runtime-${ICEBERG_FRAMEWORK_VERSION}-${ICEBERG_FRAMEWORK_SUB_VERSION}.jar -P ${SPARK_HOME}/jars/
-            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.20.23/bundle-2.20.23.jar -P ${SPARK_HOME}/jars/
-            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/url-connection-client/2.20.23/url-connection-client-2.20.23.jar -P ${SPARK_HOME}/jars/
+            # Bumped 2.20.23 -> 2.48.1 to clear CVE-2026-42581/CVE-2026-42584 (netty-codec-http)
+            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.48.1/bundle-2.48.1.jar -P ${SPARK_HOME}/jars/
+            wget -q https://repo1.maven.org/maven2/software/amazon/awssdk/url-connection-client/2.48.1/url-connection-client-2.48.1.jar -P ${SPARK_HOME}/jars/
             # wget -q https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/${ICEBERG_FRAMEWORK_SUB_VERSION}/iceberg-aws-bundle-${ICEBERG_FRAMEWORK_SUB_VERSION}.jar -P ${SPARK_HOME}/jars/
             ;;
         SNOWFLAKE)

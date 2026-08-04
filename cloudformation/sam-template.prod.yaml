@@ -195,6 +195,7 @@ Resources:
       PackageType: Image
       FunctionName: !Sub '${LambdaFunctionPrefix}-${AWS::StackName}'
       ImageUri: !Ref ImageUri
+      # ReservedConcurrentExecutions: 1
       ImageConfig:
         Command: !Ref Command
         EntryPoint:
@@ -227,7 +228,7 @@ Resources:
           CR_TABLE_NAME: 'iceberg_curated'
           DATABASE_NAME: 'powerup-lakeformation'
           ICB_WG: 'iceberg-workgroup'
-          LAMBDA_VERSION: 'v1.1.4'
+          LAMBDA_VERSION: 'v1.1.6'
           RC_TABLE_NAME: 'iceberg_records'
           WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-590183814935/'
           LINEAGE_VERIFY_TABLE: 'lineage_verify'

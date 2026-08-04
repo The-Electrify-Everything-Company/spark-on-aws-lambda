@@ -88,7 +88,7 @@ Resources:
   LambdaRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: soal-lineage-loger-role-tst
+      RoleName: soal-lineage-loger-role
       Description: 'Role used by the lambda running spark'
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -198,6 +198,7 @@ Resources:
       PackageType: Image
       FunctionName: !Sub '${LambdaFunctionPrefix}-${AWS::StackName}'
       ImageUri: !Ref ImageUri
+      # ReservedConcurrentExecutions: 1
       ImageConfig:
         Command: !Ref Command
         EntryPoint:
@@ -229,11 +230,11 @@ Resources:
           #OUTPUT_PATH: !Ref OutputPath
           CR_TABLE_NAME: 'iceberg_curated'
           DATABASE_NAME: 'powerup-lakeformation'
-          ICB_WG: 'iceberg-workgroup-tst'
+          ICB_WG: 'iceberg-workgroup'
           LAMBDA_VERSION: 'staging'
           RC_TABLE_NAME: 'iceberg_records'
-          WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-533267385393-tst/'
-          LINEAGE_VERIFY_TABLE: 'lineage_verify-tst'
+          WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-533267385393/'
+          LINEAGE_VERIFY_TABLE: 'lineage_verify'
           Rebuild: !Ref BuildTrigger
 
 
