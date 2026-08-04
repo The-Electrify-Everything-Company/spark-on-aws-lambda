@@ -7,7 +7,7 @@
     "uuid": "6b9a2ed0e79e5f32386d6af83e3d2e6b",
     "direction": "Inbound",
     "type": "Incoming Message",
-    "content_type": "Video",
+    "content_type": "Image",
     "from_phone": "+256703030436",
     "to_phone": "256759712768",
     "is_hidden": false,
