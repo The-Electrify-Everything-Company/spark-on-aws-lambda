@@ -1,0 +1,12 @@
+{
+  "phonenumber": "256774768254",
+  "recipientphonenumber": "256200970028",
+  "message_id": "wamid.IMAGE123",
+  "timestamp": 1783665999,
+  "direction": "inbound",
+  "type": "image",
+  "image_url": "https://example.com/image.jpg",
+  "image_mime_type": "image/jpeg",
+  "image_sha256": "abc123",
+  "s3_image_path": "images/256774768254/123_media.jpg"
+}

@@ -1,0 +1,10 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "changes": [
+        {"field": "message_template_status_update", "value": {}}
+      ]
+    }
+  ]
+}

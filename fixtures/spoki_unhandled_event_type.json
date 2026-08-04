@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "event": "message.deleted",
+  "event_uuid": "70d3ebc8-b423-40f3-807e-102825aa4e98",
+  "timestamp": 1785783757.028246,
+  "data": {
+    "uuid": "6b9a2ed0e79e5f32386d6af83e3d2e6b",
+    "direction": "Inbound",
+    "type": "Incoming Message",
+    "content_type": "Text",
+    "from_phone": "+256703030436",
+    "to_phone": "256759712768",
+    "is_hidden": false,
+    "send_status": "---",
+    "sent_datetime": "2026-08-03T19:02:35.000Z",
+    "delivered_datetime": null,
+    "send_error_message": null,
+    "error_code": null,
+    "error_url": null,
+    "preview": null,
+    "text": "Ok",
+    "timestamp_ms": 1785783756911,
+    "created_datetime": "2026-08-03T19:02:36.911947Z",
+    "mediamessage_set": [],
+    "locationmessage": null,
+    "contactsmessage_set": [],
+    "contact": null,
+    "metadata": null,
+    "payload": null,
+    "chat_uuid": "94b8ed5f9f734455b307e8998fa72ce3",
+    "chat_link": "https://app.spoki.com/chats/94b8ed5f9f734455b307e8998fa72ce3"
+  }
+}
