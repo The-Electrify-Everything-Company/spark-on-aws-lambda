@@ -266,6 +266,24 @@ def upload_image_to_s3(image_data, image_id, from_number, mime_type):
         return None, None
 
 
+def download_media_from_url(url):
+    """
+    Download media from a direct, pre-signed URL. Unlike download_whatsapp_media,
+    this needs no auth headers or media-id resolution step - used for vendors
+    (e.g. Spoki) that hand back an already-fetchable media link.
+    """
+    try:
+        req = urllib.request.Request(url)
+        response = urllib.request.urlopen(req)
+        return response.read()
+    except urllib.request.HTTPError as e:
+        logger.error(f"HTTP Error downloading media from {url}: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error downloading media from {url}: {str(e)}")
+        return None
+
+
 def handle_image_message(message, display_phone_number):
     """
     Handle inbound image messages - download from WhatsApp and upload to S3
@@ -466,13 +484,55 @@ def _extract_spoki_timestamp(payload, data):
     return int(payload.get('timestamp', 0))
 
 
+def handle_spoki_image_message(data, message_id, from_phone):
+    """
+    Handle Spoki inbound/outbound image messages - download the media from
+    Spoki's pre-signed URL and upload it to S3. Returns a dict of the fields
+    to overlay onto the base Spoki record (not a full record, unlike Meta's
+    handle_image_message, since build_spoki_records already builds the base
+    record shared across content types).
+    """
+    updates = {
+        "text_content": data.get('text') or None,
+        "image_url": None,
+        "image_mime_type": None,
+        "image_sha256": None,
+        "s3_image_path": None,
+    }
+
+    media_items = data.get('mediamessage_set') or []
+    if not media_items:
+        logger.warning(f"[Spoki] Image content_type with no mediamessage_set entries for message {message_id}")
+        return updates
+
+    media = media_items[0]
+    media_url = media.get('media')
+    mime_type = media.get('content_type')
+    media_id = media.get('id') or message_id
+    updates["image_mime_type"] = mime_type
+
+    if not media_url:
+        logger.error(f"[Spoki] No media URL in mediamessage_set for message {message_id}")
+        return updates
+
+    image_bytes = download_media_from_url(media_url)
+    if not image_bytes:
+        logger.error(f"[Spoki] Failed to download media for message {message_id}")
+        return updates
+
+    s3_url, s3_path = upload_image_to_s3(image_bytes, media_id, from_phone, mime_type or "application/octet-stream")
+    updates["image_url"] = s3_url
+    updates["s3_image_path"] = s3_path
+    return updates
+
+
 def build_spoki_records(payload):
     """
     Parses a Spoki webhook payload into a list of records matching
-    ICEBERG_TABLE_SCHEMA. Only "message.inbound"/"message.outbound" text
-    messages are fully handled for now; any other content_type still yields
-    a minimal record with a warning logged so we can extend this once a real
-    sample shows up.
+    ICEBERG_TABLE_SCHEMA. "message.inbound"/"message.outbound" text and image
+    messages are fully handled; any other content_type still yields a minimal
+    record with a warning logged so we can extend this once a real sample
+    shows up.
     """
     records = []
     event = payload.get('event')
@@ -520,6 +580,8 @@ def build_spoki_records(payload):
 
     if content_type == "text":
         record["text_content"] = data.get('text')
+    elif content_type == "image":
+        record.update(handle_spoki_image_message(data, message_id, from_phone))
     else:
         logger.warning(f"[Spoki] Unhandled content_type '{content_type}' for message {message_id}; recording metadata only")
 

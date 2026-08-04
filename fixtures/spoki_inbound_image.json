@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "event": "message.inbound",
+  "event_uuid": "005b378c-9f14-4a55-ac19-e7e35f9a86a9",
+  "timestamp": 1785831171.215091,
+  "data": {
+    "uuid": "3b7514ce25fac88166d911a0f9938fd1",
+    "direction": "Inbound",
+    "type": "Incoming Message",
+    "content_type": "Image",
+    "from_phone": "+256709079019",
+    "to_phone": "256759712768",
+    "is_hidden": false,
+    "send_status": "---",
+    "sent_datetime": "2026-08-04T08:12:48.000Z",
+    "delivered_datetime": null,
+    "send_error_message": null,
+    "error_code": null,
+    "error_url": null,
+    "preview": null,
+    "text": "",
+    "timestamp": 1785831170239,
+    "created_datetime": "2026-08-04T08:12:50.239874Z",
+    "mediamessage_set": [
+      {
+        "content_type": "image/jpeg",
+        "id": null,
+        "media": "https://messaging.spoki.com/mdv2/1762720404861735.jpeg?t=eyJkIjoiTGY3N0hTQW5ZdFc2WUlKRjNuRnU0YUlPRGJnQkxsTEpQX2xmVExRVUlOSSIsImEiOiI1NTE0MSJ9",
+        "timestamp": 1785831170239,
+        "title": "..jpeg"
+      }
+    ],
+    "locationmessage": null,
+    "contactsmessage_set": [],
+    "contact": null,
+    "metadata": null,
+    "payload": null,
+    "chat_uuid": "6434be6ca8d541f4862c32d4ccdb77f9",
+    "chat_link": "https://app.spoki.com/chats/6434be6ca8d541f4862c32d4ccdb77f9"
+  }
+}

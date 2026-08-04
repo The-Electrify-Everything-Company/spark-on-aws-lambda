@@ -27,6 +27,9 @@ SPOKI_TEXT_MISSING_TIMESTAMP_MS_PAYLOAD = load_fixture("spoki_inbound_text_missi
 SPOKI_UNHANDLED_CONTENT_TYPE_PAYLOAD = load_fixture("spoki_inbound_unhandled_content_type.json")
 SPOKI_UNHANDLED_EVENT_TYPE_PAYLOAD = load_fixture("spoki_unhandled_event_type.json")
 SPOKI_UNRECOGNIZED_DIRECTION_PAYLOAD = load_fixture("spoki_outbound_unrecognized_direction.json")
+SPOKI_IMAGE_PAYLOAD = load_fixture("spoki_inbound_image.json")
+SPOKI_IMAGE_WITH_CAPTION_PAYLOAD = load_fixture("spoki_inbound_image_with_caption.json")
+SPOKI_IMAGE_NO_MEDIA_PAYLOAD = load_fixture("spoki_inbound_image_no_media.json")
 
 SCHEMA_COLUMNS = set(field.name for field in soal.ICEBERG_TABLE_SCHEMA.fields)
 
@@ -125,7 +128,42 @@ class BuildSpokiRecordsTests(unittest.TestCase):
 
         self.assertEqual(len(records), 1)
         record = records[0]
+        self.assertEqual(record["type"], "video")
+        self.assertIsNone(record["text_content"])
+
+    @patch("soal_whatsapp_api_iceberg_write.handle_spoki_image_message")
+    def test_image_message_downloads_and_uploads_to_s3(self, mock_handle_image):
+        mock_handle_image.return_value = {
+            "text_content": None,
+            "image_url": "https://example.com/spoki-image.jpg",
+            "image_mime_type": "image/jpeg",
+            "image_sha256": None,
+            "s3_image_path": "images/+256709079019/123_3b7514ce25fac88166d911a0f9938fd1.jpg",
+        }
+
+        records = soal.build_spoki_records(SPOKI_IMAGE_PAYLOAD)
+
+        mock_handle_image.assert_called_once_with(
+            SPOKI_IMAGE_PAYLOAD["data"], "3b7514ce25fac88166d911a0f9938fd1", "+256709079019"
+        )
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(set(record.keys()), SCHEMA_COLUMNS)
         self.assertEqual(record["type"], "image")
+        self.assertEqual(record["image_url"], "https://example.com/spoki-image.jpg")
+        self.assertEqual(record["image_mime_type"], "image/jpeg")
+        self.assertEqual(record["s3_image_path"], "images/+256709079019/123_3b7514ce25fac88166d911a0f9938fd1.jpg")
+        self.assertIsNone(record["image_sha256"])
+
+    def test_image_with_no_media_is_metadata_only(self):
+        records = soal.build_spoki_records(SPOKI_IMAGE_NO_MEDIA_PAYLOAD)
+
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(set(record.keys()), SCHEMA_COLUMNS)
+        self.assertEqual(record["type"], "image")
+        self.assertIsNone(record["image_url"])
+        self.assertIsNone(record["s3_image_path"])
         self.assertIsNone(record["text_content"])
 
     def test_unhandled_event_type_returns_no_records(self):
@@ -158,6 +196,61 @@ class BuildSpokiRecordsTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertIsNone(records[0]["status"])
         self.assertEqual(records[0]["direction"], "sideways")
+
+
+class HandleSpokiImageMessageTests(unittest.TestCase):
+    @patch("soal_whatsapp_api_iceberg_write.upload_image_to_s3")
+    @patch("soal_whatsapp_api_iceberg_write.download_media_from_url")
+    def test_success_populates_image_fields(self, mock_download, mock_upload):
+        mock_download.return_value = b"fake-image-bytes"
+        mock_upload.return_value = ("https://example.com/s3-image.jpg", "images/+256709079019/1_x.jpg")
+
+        data = SPOKI_IMAGE_PAYLOAD["data"]
+        updates = soal.handle_spoki_image_message(data, "msg1", "+256709079019")
+
+        mock_download.assert_called_once_with(data["mediamessage_set"][0]["media"])
+        mock_upload.assert_called_once_with(b"fake-image-bytes", "msg1", "+256709079019", "image/jpeg")
+        self.assertEqual(updates["image_url"], "https://example.com/s3-image.jpg")
+        self.assertEqual(updates["s3_image_path"], "images/+256709079019/1_x.jpg")
+        self.assertEqual(updates["image_mime_type"], "image/jpeg")
+        self.assertIsNone(updates["image_sha256"])
+        self.assertIsNone(updates["text_content"])
+
+    @patch("soal_whatsapp_api_iceberg_write.upload_image_to_s3")
+    @patch("soal_whatsapp_api_iceberg_write.download_media_from_url")
+    def test_download_failure_still_sets_mime_type(self, mock_download, mock_upload):
+        mock_download.return_value = None
+
+        data = SPOKI_IMAGE_PAYLOAD["data"]
+        updates = soal.handle_spoki_image_message(data, "msg1", "+256709079019")
+
+        mock_upload.assert_not_called()
+        self.assertIsNone(updates["image_url"])
+        self.assertIsNone(updates["s3_image_path"])
+        self.assertEqual(updates["image_mime_type"], "image/jpeg")
+
+    @patch("soal_whatsapp_api_iceberg_write.upload_image_to_s3")
+    @patch("soal_whatsapp_api_iceberg_write.download_media_from_url")
+    def test_empty_mediamessage_set_skips_download(self, mock_download, mock_upload):
+        data = SPOKI_IMAGE_NO_MEDIA_PAYLOAD["data"]
+        updates = soal.handle_spoki_image_message(data, "msg1", "+256703030436")
+
+        mock_download.assert_not_called()
+        mock_upload.assert_not_called()
+        self.assertIsNone(updates["image_url"])
+        self.assertIsNone(updates["image_mime_type"])
+        self.assertIsNone(updates["s3_image_path"])
+
+    @patch("soal_whatsapp_api_iceberg_write.upload_image_to_s3")
+    @patch("soal_whatsapp_api_iceberg_write.download_media_from_url")
+    def test_caption_is_captured(self, mock_download, mock_upload):
+        mock_download.return_value = b"fake-image-bytes"
+        mock_upload.return_value = ("https://example.com/s3-image.jpg", "images/+256709079019/1_x.jpg")
+
+        data = SPOKI_IMAGE_WITH_CAPTION_PAYLOAD["data"]
+        updates = soal.handle_spoki_image_message(data, "msg2", "+256709079019")
+
+        self.assertEqual(updates["text_content"], "Here is my payment proof")
 
 
 class HandleMessageEventDispatchTests(unittest.TestCase):
