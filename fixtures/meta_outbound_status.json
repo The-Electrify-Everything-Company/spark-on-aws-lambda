@@ -1,0 +1,25 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "metadata": {"display_phone_number": "256200970028"},
+            "statuses": [
+              {
+                "id": "wamid.STATUS1",
+                "status": "delivered",
+                "recipient_id": "256774768254",
+                "timestamp": "1783666000",
+                "conversation": {"id": "conv1", "origin": {"type": "service"}},
+                "pricing": {"pricing_model": "CBP", "category": "service"}
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
