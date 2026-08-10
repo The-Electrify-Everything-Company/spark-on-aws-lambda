@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "event": "message.outbound",
+  "event_uuid": "0032ab2f-ccd3-490e-aa81-e059475b1294",
+  "timestamp": 1785749307.367328,
+  "data": {
+    "uuid": "b505e5cf52264b5bb660f768bf389db1",
+    "direction": "Outbound",
+    "type": "Message",
+    "content_type": "Text",
+    "from_phone": "256759712768",
+    "to_phone": "+256785258455",
+    "is_hidden": false,
+    "is_sent_from_ai": false,
+    "send_status": "Sent",
+    "sent_datetime": "2026-08-03T09:28:27.091355Z",
+    "delivered_datetime": null,
+    "send_error_message": null,
+    "error_code": null,
+    "error_url": null,
+    "template": null,
+    "preview": {
+      "body": "Hi Jacob, How may I help you ?"
+    },
+    "text": "Hi Jacob, How may I help you ?",
+    "timestamp": 1785749305966,
+    "created_datetime": "2026-08-03T09:28:25.966000Z",
+    "mediamessage_set": [],
+    "metadata": null,
+    "payload": null,
+    "chat_uuid": "d1e99fb20fd4487bb5c3789cb2ecd627",
+    "chat_link": "https://app.spoki.com/chats/d1e99fb20fd4487bb5c3789cb2ecd627",
+    "sender_id": null,
+    "sender_ref": null
+  }
+}

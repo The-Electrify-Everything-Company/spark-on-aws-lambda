@@ -266,6 +266,24 @@ def upload_image_to_s3(image_data, image_id, from_number, mime_type):
         return None, None
 
 
+def download_media_from_url(url):
+    """
+    Download media from a direct, pre-signed URL. Unlike download_whatsapp_media,
+    this needs no auth headers or media-id resolution step - used for vendors
+    (e.g. Spoki) that hand back an already-fetchable media link.
+    """
+    try:
+        req = urllib.request.Request(url)
+        response = urllib.request.urlopen(req)
+        return response.read()
+    except urllib.request.HTTPError as e:
+        logger.error(f"HTTP Error downloading media from {url}: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error downloading media from {url}: {str(e)}")
+        return None
+
+
 def handle_image_message(message, display_phone_number):
     """
     Handle inbound image messages - download from WhatsApp and upload to S3
@@ -332,105 +350,259 @@ def handle_image_message(message, display_phone_number):
         return None
 
 
+def detect_vendor(payload):
+    """
+    Determines which webhook provider a payload came from, based purely on
+    body shape (the SQS message body is only the inner webhook JSON - the
+    original request headers are not available at this point).
+    """
+    if not isinstance(payload, dict):
+        return 'unknown'
+    if payload.get('object') == 'whatsapp_business_account':
+        return 'meta'
+    if payload.get('version') == 2 and payload.get('event') and isinstance(payload.get('data'), dict):
+        return 'spoki'
+    return 'unknown'
+
+
+def build_meta_records(payload):
+    """
+    Parses a Meta/WhatsApp Cloud API webhook payload into a list of records
+    matching ICEBERG_TABLE_SCHEMA.
+    """
+    records = []
+    if 'object' in payload and payload['object'] == 'whatsapp_business_account':
+        for entry in payload.get('entry', []):
+            for change in entry.get('changes', []):
+                if change['field'] == 'messages':
+                    value = change.get("value", {})
+                    metadata = value.get("metadata", {})
+                    display_phone_number = metadata.get('display_phone_number')
+
+                    # Handle inbound messages
+                    for message in value.get("messages", []):
+                        message_type = message["type"]
+                        match message_type:
+                            case "text":
+                                from_number = message["from"]
+                                text_content = message["text"]["body"]
+                                message_id = message["id"]
+                                timestamp = int(message["timestamp"])
+
+                                logger.info(f"📩 Inbound message from {from_number}: {text_content}")
+
+                                records.append({
+                                    "phonenumber": from_number,
+                                    "recipientphonenumber": display_phone_number,
+                                    "message_id": message_id,
+                                    "timestamp": timestamp,
+                                    "text_content": text_content,
+                                    "direction": "inbound",
+                                    "type": "text",
+                                    "status": None,
+                                    "conversation_id": None,
+                                    "conversation_type": None,
+                                    "pricing_model": None,
+                                    "pricing_category": None,
+                                    "image_url": None,
+                                    "image_mime_type": None,
+                                    "image_sha256": None,
+                                    "s3_image_path": None
+                                })
+
+                            case "image":
+                                # Handle image messages
+                                image_record = handle_image_message(message, display_phone_number)
+                                if image_record:
+                                    # Ensure all fields are present
+                                    for field in ["status", "conversation_id", "conversation_type",
+                                                "pricing_model", "pricing_category", "text_content"]:
+                                        if field not in image_record:
+                                            image_record[field] = None
+                                    records.append(image_record)
+
+                            # Add more message types here as needed
+                            # case "audio":
+                            # case "video":
+                            # case "document":
+
+                    # Handle outbound message statuses
+                    for status in value.get("statuses", []):
+                        message_id = status["id"]
+                        status_value = status["status"]
+                        recipient_id = status.get("recipient_id")
+                        timestamp = int(status["timestamp"])
+
+                        logger.info(f"📤 Outbound message {message_id} to {recipient_id} has status {status_value}")
+
+                        record = {
+                            "phonenumber": display_phone_number,
+                            "recipientphonenumber": recipient_id,
+                            "message_id": message_id,
+                            "timestamp": timestamp,
+                            "status": status_value,
+                            "direction": "outbound",
+                            "type": None,
+                            "text_content": None,
+                            "conversation_id": None,
+                            "conversation_type": None,
+                            "pricing_model": None,
+                            "pricing_category": None,
+                            "image_url": None,
+                            "image_mime_type": None,
+                            "image_sha256": None,
+                            "s3_image_path": None
+                        }
+
+                        if "conversation" in status:
+                            record["conversation_id"] = status["conversation"]["id"]
+                            record["conversation_type"] = status["conversation"]["origin"].get("type")
+
+                        if "pricing" in status:
+                            record["pricing_model"] = status["pricing"].get("pricing_model")
+                            record["pricing_category"] = status["pricing"].get("category")
+
+                        records.append(record)
+
+    return records
+
+
+def _extract_spoki_timestamp(payload, data):
+    """
+    Spoki stores the message-creation epoch-ms timestamp under different keys
+    depending on direction: "timestamp_ms" for inbound, "timestamp" for
+    outbound (distinct from the top-level payload "timestamp", which is
+    always a float epoch-seconds webhook-emission time).
+    """
+    timestamp_ms = data.get('timestamp_ms')
+    if timestamp_ms is None:
+        candidate = data.get('timestamp')
+        if isinstance(candidate, (int, float)) and candidate > 10**12:
+            timestamp_ms = candidate
+    if timestamp_ms is not None:
+        return int(timestamp_ms / 1000)
+    return int(payload.get('timestamp', 0))
+
+
+def handle_spoki_image_message(data, message_id, from_phone):
+    """
+    Handle Spoki inbound/outbound image messages - download the media from
+    Spoki's pre-signed URL and upload it to S3. Returns a dict of the fields
+    to overlay onto the base Spoki record (not a full record, unlike Meta's
+    handle_image_message, since build_spoki_records already builds the base
+    record shared across content types).
+    """
+    updates = {
+        "text_content": data.get('text') or None,
+        "image_url": None,
+        "image_mime_type": None,
+        "image_sha256": None,
+        "s3_image_path": None,
+    }
+
+    media_items = data.get('mediamessage_set') or []
+    if not media_items:
+        logger.warning(f"[Spoki] Image content_type with no mediamessage_set entries for message {message_id}")
+        return updates
+
+    media = media_items[0]
+    media_url = media.get('media')
+    mime_type = media.get('content_type')
+    media_id = media.get('id') or message_id
+    updates["image_mime_type"] = mime_type
+
+    if not media_url:
+        logger.error(f"[Spoki] No media URL in mediamessage_set for message {message_id}")
+        return updates
+
+    image_bytes = download_media_from_url(media_url)
+    if not image_bytes:
+        logger.error(f"[Spoki] Failed to download media for message {message_id}")
+        return updates
+
+    s3_url, s3_path = upload_image_to_s3(image_bytes, media_id, from_phone, mime_type or "application/octet-stream")
+    updates["image_url"] = s3_url
+    updates["s3_image_path"] = s3_path
+    return updates
+
+
+def build_spoki_records(payload):
+    """
+    Parses a Spoki webhook payload into a list of records matching
+    ICEBERG_TABLE_SCHEMA. "message.inbound"/"message.outbound" text and image
+    messages are fully handled; any other content_type still yields a minimal
+    record with a warning logged so we can extend this once a real sample
+    shows up.
+    """
+    records = []
+    event = payload.get('event')
+    if event not in ('message.inbound', 'message.outbound'):
+        logger.warning(f"[Spoki] Unhandled event type '{event}', skipping")
+        return records
+
+    data = payload.get('data')
+    from_phone = data.get('from_phone')
+    to_phone = data.get('to_phone')
+    message_id = data.get('uuid')
+    direction = (data.get('direction')).lower()
+    content_type = (data.get('content_type')).lower()
+    timestamp = _extract_spoki_timestamp(payload, data)
+
+    record = {
+        "phonenumber": from_phone,
+        "recipientphonenumber": to_phone,
+        "message_id": message_id,
+        "timestamp": timestamp,
+        "text_content": None,
+        "direction": direction,
+        "type": content_type,
+        "status": None,
+        "conversation_id": None,
+        "conversation_type": None,
+        "pricing_model": None,
+        "pricing_category": None,
+        "image_url": None,
+        "image_mime_type": None,
+        "image_sha256": None,
+        "s3_image_path": None
+    }
+
+    match direction:
+        case "inbound":
+            logger.info(f"📩 [Spoki] Inbound {content_type} message from {from_phone}")
+        case "outbound":
+            send_status = data.get('send_status')
+            if send_status and send_status != "---":
+                record["status"] = send_status.lower()
+            logger.info(f"📤 [Spoki] Outbound {content_type} message from {from_phone} to {to_phone}, status={record['status']}")
+        case _:
+            logger.warning(f"[Spoki] Unrecognized direction '{direction}' for message {message_id}")
+
+    if content_type == "text":
+        record["text_content"] = data.get('text')
+    elif content_type == "image":
+        record.update(handle_spoki_image_message(data, message_id, from_phone))
+    else:
+        logger.warning(f"[Spoki] Unhandled content_type '{content_type}' for message {message_id}; recording metadata only")
+
+    records.append(record)
+    return records
+
+
 def handle_message_event(payload, spark):
     """
-    Handles WhatsApp notifications and stores them in Iceberg
-    Updated to use Spark instead of Athena
+    Handles inbound webhook notifications (Meta or Spoki) and stores them in
+    Iceberg. Updated to use Spark instead of Athena.
     """
     try:
-        records = []
-        if 'object' in payload and payload['object'] == 'whatsapp_business_account':
-            for entry in payload.get('entry', []):
-                for change in entry.get('changes', []):
-                    if change['field'] == 'messages':
-                        value = change.get("value", {})
-                        metadata = value.get("metadata", {})
-                        display_phone_number = metadata.get('display_phone_number')
-
-                        # Handle inbound messages
-                        for message in value.get("messages", []):
-                            message_type = message["type"]
-                            match message_type:
-                                case "text":
-                                    from_number = message["from"]
-                                    text_content = message["text"]["body"]
-                                    message_id = message["id"]
-                                    timestamp = int(message["timestamp"])
-
-                                    logger.info(f"📩 Inbound message from {from_number}: {text_content}")
-
-                                    records.append({
-                                        "phonenumber": from_number,
-                                        "recipientphonenumber": display_phone_number,
-                                        "message_id": message_id,
-                                        "timestamp": timestamp,
-                                        "text_content": text_content,
-                                        "direction": "inbound",
-                                        "type": "text",
-                                        "status": None,
-                                        "conversation_id": None,
-                                        "conversation_type": None,
-                                        "pricing_model": None,
-                                        "pricing_category": None,
-                                        "image_url": None,
-                                        "image_mime_type": None,
-                                        "image_sha256": None,
-                                        "s3_image_path": None
-                                    })
-
-                                case "image":
-                                    # Handle image messages
-                                    image_record = handle_image_message(message, display_phone_number)
-                                    if image_record:
-                                        # Ensure all fields are present
-                                        for field in ["status", "conversation_id", "conversation_type", 
-                                                    "pricing_model", "pricing_category", "text_content"]:
-                                            if field not in image_record:
-                                                image_record[field] = None
-                                        records.append(image_record)
-
-                                # Add more message types here as needed
-                                # case "audio":
-                                # case "video":
-                                # case "document":
-
-                        # Handle outbound message statuses
-                        for status in value.get("statuses", []):
-                            message_id = status["id"]
-                            status_value = status["status"]
-                            recipient_id = status.get("recipient_id")
-                            timestamp = int(status["timestamp"])
-
-                            logger.info(f"📤 Outbound message {message_id} to {recipient_id} has status {status_value}")
-
-                            record = {
-                                "phonenumber": display_phone_number,
-                                "recipientphonenumber": recipient_id,
-                                "message_id": message_id,
-                                "timestamp": timestamp,
-                                "status": status_value,
-                                "direction": "outbound",
-                                "type": None,
-                                "text_content": None,
-                                "conversation_id": None,
-                                "conversation_type": None,
-                                "pricing_model": None,
-                                "pricing_category": None,
-                                "image_url": None,
-                                "image_mime_type": None,
-                                "image_sha256": None,
-                                "s3_image_path": None
-                            }
-
-                            if "conversation" in status:
-                                record["conversation_id"] = status["conversation"]["id"]
-                                record["conversation_type"] = status["conversation"]["origin"].get("type")
-
-                            if "pricing" in status:
-                                record["pricing_model"] = status["pricing"].get("pricing_model")
-                                record["pricing_category"] = status["pricing"].get("category")
-
-                            records.append(record)
+        vendor = detect_vendor(payload)
+        if vendor == 'meta':
+            records = build_meta_records(payload)
+        elif vendor == 'spoki':
+            records = build_spoki_records(payload)
+        else:
+            logger.warning(f"Unrecognized webhook payload shape, skipping. Top-level keys: {list(payload.keys()) if isinstance(payload, dict) else type(payload)}")
+            records = []
 
         if records:
             logger.info(f"Collected {len(records)} records to write to Iceberg")
