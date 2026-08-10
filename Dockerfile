@@ -44,7 +44,6 @@ RUN if [ -f "${LAMBDA_TASK_ROOT}/requirements.txt" ]; then pip install --no-cach
 COPY libs/glue_functions /home/glue_functions
 COPY spark-class /var/lang/lib/python3.12/site-packages/pyspark/bin/
 COPY sparkLambdaHandler.py ${LAMBDA_TASK_ROOT}
-COPY test.py ${LAMBDA_TASK_ROOT}
 # Optionally copy log4j.properties if present
 RUN if [ -f log4j.properties ]; then cp log4j.properties /var/lang/lib/python3.12/site-packages/pyspark/conf/; fi
 
@@ -72,6 +71,5 @@ ENV SPARK_HOME="/var/lang/lib/python3.12/site-packages/pyspark" \
 RUN java -version
 
 RUN chmod 755 ${LAMBDA_TASK_ROOT}/sparkLambdaHandler.py
-RUN chmod 755 ${LAMBDA_TASK_ROOT}/test.py
 
 CMD [ "sparkLambdaHandler.lambda_handler" ]
