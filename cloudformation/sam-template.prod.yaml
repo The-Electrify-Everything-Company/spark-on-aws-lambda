@@ -21,6 +21,9 @@ Parameters:
   BuildTrigger:
     Type: String
     Default: v1
+  BackupSuffix:
+      Type: String
+      Default: ''
   ImageUri:
     Description: 'Mandatory: ECR Uri for the image. If not present, then create and push using the sam-imagebuilder.yaml in the github https://github.com/aws-samples/spark-on-aws-lambda '
     Type: String
@@ -88,7 +91,7 @@ Resources:
   LambdaRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: soal-lineage-loger-role
+      RoleName: !Sub 'soal-lineage-loger-role${BackupSuffix}'
       Description: 'Role used by the lambda running spark'
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
