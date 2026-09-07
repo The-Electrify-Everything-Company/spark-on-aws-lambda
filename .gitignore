@@ -1,3 +1,4 @@
 #cloud formations files for whatsapp api 
 sam-template-whatsapp-api-non-prod.yaml
 sam-template-whatsapp-api-prod.yaml
+samconfig.*

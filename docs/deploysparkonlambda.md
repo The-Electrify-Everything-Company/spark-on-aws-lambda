@@ -1,0 +1,151 @@
+# SOAL (Spark on AWS Lambda) Stack Implementation
+
+This document describes how the SOAL (Spark on AWS Lambda) CloudFormation stack (`cloudformation/sam-template.yaml`) is
+implemented and deployed. A single template is shared by every environment; per-environment values (region,
+S3 bucket, image repository, and the parameter overrides below) live entirely in `cloudformation/samconfig.yaml`,
+so there's no `Environment` CloudFormation parameter and no per-environment tagging — nothing in the template
+itself needs to change to deploy to a different environment.
+
+## Overview
+
+`sam-template.yaml` is shared by both the non-prod and prod SOAL stacks. It packages the Spark-on-Lambda
+container image (built by `sam-imagebuilder.yaml`, see [Instructions in the wiki](https://github.com/aws-samples/spark-on-aws-lambda/wiki/Cloudformation))
+into a single AWS Lambda function, along with the supporting IAM role/policy and (optionally) VPC networking.
+
+### Parameters
+
+In addition to the existing image/script parameters, the template takes the following parameters that feed
+the Lambda function's environment variables:
+
+| Parameter            | Mandatory (CFN)? | Environment variable   | Default    |
+| --------------------- | ---------------- | ----------------------- | ---------- |
+| `LambdaVersion`       | No               | `LAMBDA_VERSION`        | `''`       |
+| `WarehouseBucket`     | No               | `WAREHOUSE_BUCKET`      | `''`       |
+| `CrTableName`         | No               | `CR_TABLE_NAME`         | `''`       |
+| `DatabaseName`        | No               | `DATABASE_NAME`         | `''`       |
+| `IcbWorkgroup`        | No               | `ICB_WG`                | `''`       |
+| `RcTableName`         | No               | `RC_TABLE_NAME`         | `''`       |
+| `LineageVerifyTable`  | No               | `LINEAGE_VERIFY_TABLE`  | `''`       |
+
+These were all previously hardcoded in the template (e.g. `LAMBDA_VERSION: 'staging'`); they are now
+`!Ref`'d from the template's `Parameters` block. CloudFormation treats all of them as optional (each
+defaults to an empty string), but the template no longer bakes in any of the old hardcoded values — every
+environment's `samconfig.yaml` must set all seven explicitly to get the previous behavior (e.g. a stack
+deployed without `DatabaseName` set will get `DATABASE_NAME=''`, not `powerup-lakeformation`).
+
+There's also a `BackupSuffix` parameter (default `''`) appended to the IAM role name
+(`soal-lineage-loger-role${BackupSuffix}`), used to avoid role-name collisions when standing up a second
+copy of the stack (e.g. during a migration) alongside an existing one.
+
+## Per-environment configuration: `samconfig.yaml`
+
+Per-environment values (region, stack name, image repository, S3 bucket, and the parameter overrides
+above) live in `cloudformation/samconfig.yaml`, under a `non-prod: deploy: parameters` or
+`prod: deploy: parameters` section.
+
+**SAM CLI does not merge a `default: global: parameters` section into a named `--config-env` section** —
+each environment section is loaded standalone (verify with `sam deploy --config-env non-prod --debug` and
+check the "Configuration values are" log line). So `template_file`, `capabilities`, `resolve_s3`,
+`region`, and `stack_name` must be repeated in full in every environment's own section, not just in
+`default`. Use a YAML anchor (`&default_params` / `<<: *default_params`) to avoid re-typing the shared
+keys, as shown below — this merges them at YAML-parse time, before SAM CLI ever sees the config, so it
+still satisfies the "every section must be fully specified" rule. `default: global: parameters` only
+applies on its own when running `sam deploy` with no `--config-env` at all.
+
+`samconfig.yaml` is not committed — it isn't tracked in git since it holds account-specific values like
+ECR repository URIs and S3 bucket names. Each developer/deployment target maintains their own local copy;
+use the shape below as a template for creating one.
+
+> **Note:** only `*.toml` is currently listed in `.gitignore`. If you name your local config
+> `samconfig.yaml` (as opposed to `samconfig.toml`), it stays untracked only until someone runs a broad
+> `git add`. Double check `git status` before staging, or add `samconfig.yaml` to `.gitignore` yourself.
+
+To change a value for an environment, edit its section in your local `samconfig.yaml` — there's no need to
+touch the template itself.
+
+```yaml
+version: 0.1
+
+default:
+  global:
+    parameters: &default_params
+      template_file: sam-template.yaml
+      capabilities: CAPABILITY_IAM CAPABILITY_NAMED_IAM
+      resolve_s3: true
+
+non-prod:
+  deploy:
+    parameters:
+      <<: *default_params
+      stack_name: spark-on-lambda-stack
+      region: eu-west-1
+      image_repository: <non-prod-ecr-repo>
+      parameter_overrides:
+        # Required (no default in sam-template.yaml) - must be set
+        - ScriptBucket=spark-on-lambda-non-prod
+        - SparkScript=scripts/loglineage.py
+        - ImageUri=<non-prod-ecr-repo>:latest
+
+        # Optional to CloudFormation (default '' in sam-template.yaml), but must be set
+        - LambdaVersion=staging
+        - WarehouseBucket=s3://apache-iceberg-datalineage-<non-prod-account>/
+        - CrTableName=iceberg_curated
+        - DatabaseName=powerup-lakeformation
+        - IcbWorkgroup=iceberg-workgroup
+        - RcTableName=iceberg_records
+        - LineageVerifyTable=lineage_verify
+```
+
+The `prod` section follows the same shape with prod account/region/`stack_name`/`image_repository` values.
+
+Note: `stack-name` and `region` are SAM CLI deploy options, not CloudFormation template parameters — they
+must be set as top-level `stack_name`/`region` keys (as above), never inside `parameter_overrides`.
+Putting `"stack-name=..."` or `"region=..."` in `parameter_overrides` is silently wrong (CloudFormation
+parameter names can't contain hyphens) and produces `Error: Missing option '--stack-name'` since SAM CLI
+never finds a real `stack_name` value. Likewise, don't add `"BackupSuffix="` (empty value) to
+`parameter_overrides` — SAM CLI's `Key=Value` shorthand rejects an empty value; since `BackupSuffix`
+already defaults to `''` in the template, just omit it unless you need a non-empty suffix.
+
+## Deploying
+
+From the `cloudformation` directory, deploy either environment by name:
+
+```
+sam deploy --config-env non-prod
+sam deploy --config-env prod
+```
+
+`sam deploy` reads the matching `deploy: parameters` section for that environment from `samconfig.yaml`
+and applies it — no need to pass `--parameter-overrides`, `--region`, `--s3-bucket`, or
+`--image-repository` on the command line.
+
+### Dry run (preview changes before deploying)
+
+`sam deploy` has no dedicated `--dry-run` flag, but `--no-execute-changeset` gives the same effect: SAM
+CLI creates the CloudFormation change set and prints/uploads it without executing it, so nothing in the
+stack actually changes.
+
+```
+sam deploy --config-env non-prod --no-execute-changeset
+sam deploy --config-env prod --no-execute-changeset
+```
+
+This still requires valid credentials and package/upload access (it builds the image, uploads artifacts,
+and creates the change set in CloudFormation), so it's a true "what would this deploy do" preview rather
+than a fully offline check. Review the change set (via the URL SAM CLI prints, or `aws cloudformation
+describe-change-set --change-set-name <name> --stack-name <stack>` / the CloudFormation console) and then
+either re-run `sam deploy --config-env <env>` without the flag to execute it, or delete the change set if
+you don't want to proceed.
+
+For a fully offline sanity check with no AWS calls at all (e.g. before even attempting a dry run), validate
+the template syntax first:
+
+```
+sam validate --template-file sam-template.yaml --lint
+```
+
+## Building and publishing a new image / template version
+
+Building the Docker image (`sam-imagebuilder.yaml`) and publishing the SAM application to the AWS
+Serverless Application Repository are unchanged from before and are documented on the
+[project wiki](https://github.com/aws-samples/spark-on-aws-lambda/wiki/Cloudformation).

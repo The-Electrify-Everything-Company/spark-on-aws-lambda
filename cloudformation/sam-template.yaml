@@ -40,11 +40,11 @@ Parameters:
     Default: SparkOnAWSLambda
   LambdaTimeout:
     Description: 'Optional: Maximum Lambda invocation runtime in seconds. (min 1 - 900 max)'
-    Default: 120
+    Default: 300
     Type: Number
   LambdaMemory:
     Description: 'Optional: Lambda memory in MB (min 128 - 10,240 max).'
-    Default: 3008
+    Default: 1600
     Type: Number
   SparkLambdapermissionPolicyArn:
     Description: 'Optional: Arn of the policy that contains the permissions your spark job will need to run successfully'
@@ -77,6 +77,34 @@ Parameters:
   WorkingDirectory:
     Description: 'Optional: Command override for the image'
     Type: 'String'
+    Default: ''
+  LambdaVersion:
+    Description: 'Optional: Value for the LAMBDA_VERSION environment variable'
+    Type: String
+    Default: ''
+  WarehouseBucket:
+    Description: 'Optional: S3 URI for the Iceberg warehouse bucket, used as the WAREHOUSE_BUCKET environment variable'
+    Type: String
+    Default: ''
+  CrTableName:
+    Description: 'Optional: Value for the CR_TABLE_NAME environment variable'
+    Type: String
+    Default: ''
+  DatabaseName:
+    Description: 'Optional: Value for the DATABASE_NAME environment variable'
+    Type: String
+    Default: ''
+  IcbWorkgroup:
+    Description: 'Optional: Value for the ICB_WG environment variable'
+    Type: String
+    Default: ''
+  RcTableName:
+    Description: 'Optional: Value for the RC_TABLE_NAME environment variable'
+    Type: String
+    Default: ''
+  LineageVerifyTable:
+    Description: 'Optional: Value for the LINEAGE_VERIFY_TABLE environment variable'
+    Type: String
     Default: ''
 
 Conditions:
@@ -231,13 +259,13 @@ Resources:
           SPARK_SCRIPT: !Ref SparkScript
           #INPUT_PATH: !Ref InputPath
           #OUTPUT_PATH: !Ref OutputPath
-          CR_TABLE_NAME: 'iceberg_curated'
-          DATABASE_NAME: 'powerup-lakeformation'
-          ICB_WG: 'iceberg-workgroup'
-          LAMBDA_VERSION: 'staging'
-          RC_TABLE_NAME: 'iceberg_records'
-          WAREHOUSE_BUCKET: 's3://apache-iceberg-datalineage-533267385393/'
-          LINEAGE_VERIFY_TABLE: 'lineage_verify'
+          CR_TABLE_NAME: !Ref CrTableName
+          DATABASE_NAME: !Ref DatabaseName
+          ICB_WG: !Ref IcbWorkgroup
+          LAMBDA_VERSION: !Ref LambdaVersion
+          RC_TABLE_NAME: !Ref RcTableName
+          WAREHOUSE_BUCKET: !Ref WarehouseBucket
+          LINEAGE_VERIFY_TABLE: !Ref LineageVerifyTable
           Rebuild: !Ref BuildTrigger
 
 
