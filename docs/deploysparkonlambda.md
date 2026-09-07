@@ -33,9 +33,10 @@ defaults to an empty string), but the template no longer bakes in any of the old
 environment's `samconfig.yaml` must set all seven explicitly to get the previous behavior (e.g. a stack
 deployed without `DatabaseName` set will get `DATABASE_NAME=''`, not `powerup-lakeformation`).
 
-There's also a `BackupSuffix` parameter (default `''`) appended to the IAM role name
-(`soal-lineage-loger-role${BackupSuffix}`), used to avoid role-name collisions when standing up a second
-copy of the stack (e.g. during a migration) alongside an existing one.
+There's also a `RoleName` parameter (default `'soal-lineage-loger-role'`) and a `BackupSuffix` parameter
+(default `''`) that combine to form the IAM role name (`${RoleName}${BackupSuffix}`) - `RoleName` lets you
+change the base name entirely, while `BackupSuffix` is a lighter-weight way to avoid role-name collisions
+when standing up a second copy of the stack (e.g. during a migration) alongside an existing one.
 
 ## Per-environment configuration: `samconfig.yaml`
 
@@ -104,7 +105,9 @@ Putting `"stack-name=..."` or `"region=..."` in `parameter_overrides` is silentl
 parameter names can't contain hyphens) and produces `Error: Missing option '--stack-name'` since SAM CLI
 never finds a real `stack_name` value. Likewise, don't add `"BackupSuffix="` (empty value) to
 `parameter_overrides` — SAM CLI's `Key=Value` shorthand rejects an empty value; since `BackupSuffix`
-already defaults to `''` in the template, just omit it unless you need a non-empty suffix.
+already defaults to `''` in the template, just omit it unless you need a non-empty suffix. The same
+applies to `RoleName`: it already defaults to `'soal-lineage-loger-role'`, so only add it to
+`parameter_overrides` if you need a different base name.
 
 ## Deploying
 
@@ -143,6 +146,45 @@ the template syntax first:
 ```
 sam validate --template-file sam-template.yaml --lint
 ```
+
+## WhatsApp API stack
+
+`cloudformation/sam-template-whatsapp-api.yaml` follows the same pattern as `sam-template.yaml`: a
+single template shared by every environment, with `RoleName` and the WhatsApp-specific env vars driven
+by `samconfig.yaml`'s `whatsapp-non-prod` / `whatsapp-prod` config-envs instead of being hardcoded.
+
+| Parameter             | Mandatory (CFN)? | Environment variable   | Default |
+| ---------------------- | ---------------- | ----------------------- | ------- |
+| `RoleName`            | Yes               | (IAM role name, not an env var) | none |
+| `S3Bucket`            | No                | `S3_BUCKET`             | `''`    |
+| `IcebergTableLocation`| No                | `ICEBERG_TABLE_LOCATION`| `''`    |
+| `SqsQueueUrl`         | No                | `SQS_QUEUE_URL`         | `''`    |
+| `GlueDatabase`        | No                | `GLUE_DATABASE`         | `''`    |
+| `IcebergTable`        | No                | `ICEBERG_TABLE`         | `''`    |
+| `S3ImagePrefix`       | No                | `S3_IMAGE_PREFIX`       | `''`    |
+| `WhatsappAccessToken` | No                | `WHATSAPP_ACCESS_TOKEN` | `''`    |
+
+`RoleName` has no default and must always be set explicitly (unlike the lineage stack's parameters,
+IAM role names can't sensibly default to an empty string). `ScriptBucket`/`SparkScript`/`ImageUri` and
+the rest of the shared parameters (`LambdaTimeout`, `LambdaMemory`, VPC settings, etc.) behave exactly
+as documented above for `sam-template.yaml`.
+
+Deploy with:
+
+```
+sam deploy --config-env whatsapp-non-prod
+sam deploy --config-env whatsapp-prod
+```
+
+Validate the template syntax offline first:
+
+```
+sam validate --template-file sam-template-whatsapp-api.yaml --lint
+```
+
+Note: `sam-template-whatsapp-api-non-prod.yaml`, `-prod.yaml`, and their `.example.yaml` counterparts
+are the pre-consolidation per-environment templates this new template replaces. They're left in place
+until the consolidated template is verified in both environments, then can be deleted.
 
 ## Building and publishing a new image / template version
 

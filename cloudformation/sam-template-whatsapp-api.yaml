@@ -18,15 +18,6 @@ Metadata:
     SourceCodeUrl: 'https://github.com/aws-samples/spark-on-aws-lambda'
 
 Parameters:
-  BuildTrigger:
-    Type: String
-    Default: v1
-  BackupSuffix:
-      Type: String
-      Default: ''
-  RoleName:
-    Description: 'Optional: Base name for the IAM role created for the Lambda function (before BackupSuffix is appended)'
-    Type: String
   ImageUri:
     Description: 'Mandatory: ECR Uri for the image. If not present, then create and push using the sam-imagebuilder.yaml in the github https://github.com/aws-samples/spark-on-aws-lambda '
     Type: String
@@ -68,7 +59,7 @@ Parameters:
     Description: 'Optional: One or more Subnet IDs corresponding to the Subnet that the Lambda function can use to access you data source. (e.g. subnet1,subnet2).Only used if AttachToVpc is True'
     Type: 'CommaDelimitedList'
     Default: ''
-  
+
   Command:
     Description: 'Optional: Command override for the image. This is not required'
     Type: 'CommaDelimitedList'
@@ -81,33 +72,41 @@ Parameters:
     Description: 'Optional: Command override for the image'
     Type: 'String'
     Default: ''
-  LambdaVersion:
-    Description: 'Optional: Value for the LAMBDA_VERSION environment variable'
+
+  RoleName:
+    Description: 'Mandatory: Name of the IAM role created for the Lambda function. Must be unique per environment (e.g. differs between non-prod and prod)'
+    Type: String
+  BackupSuffix:
+      Type: String
+      Default: ''
+  S3Bucket:
+    Description: 'Optional: S3 bucket used to store WhatsApp media (env var S3_BUCKET)'
     Type: String
     Default: ''
-  WarehouseBucket:
-    Description: 'Optional: S3 URI for the Iceberg warehouse bucket, used as the WAREHOUSE_BUCKET environment variable'
+  IcebergTableLocation:
+    Description: 'Optional: S3 location of the Iceberg table (env var ICEBERG_TABLE_LOCATION)'
     Type: String
     Default: ''
-  CrTableName:
-    Description: 'Optional: Value for the CR_TABLE_NAME environment variable'
+  SqsQueueUrl:
+    Description: 'Optional: SQS queue URL the Lambda consumes from (env var SQS_QUEUE_URL)'
     Type: String
     Default: ''
-  DatabaseName:
-    Description: 'Optional: Value for the DATABASE_NAME environment variable'
+  GlueDatabase:
+    Description: 'Optional: Glue database name (env var GLUE_DATABASE)'
     Type: String
     Default: ''
-  IcbWorkgroup:
-    Description: 'Optional: Value for the ICB_WG environment variable'
+  IcebergTable:
+    Description: 'Optional: Iceberg table name (env var ICEBERG_TABLE)'
     Type: String
     Default: ''
-  RcTableName:
-    Description: 'Optional: Value for the RC_TABLE_NAME environment variable'
+  S3ImagePrefix:
+    Description: 'Optional: S3 key prefix for WhatsApp media images (env var S3_IMAGE_PREFIX)'
     Type: String
     Default: ''
-  LineageVerifyTable:
-    Description: 'Optional: Value for the LINEAGE_VERIFY_TABLE environment variable'
+  WhatsappAccessToken:
+    Description: 'Optional: WhatsApp API access token (env var WHATSAPP_ACCESS_TOKEN)'
     Type: String
+    NoEcho: True
     Default: ''
 
 Conditions:
@@ -126,7 +125,6 @@ Resources:
       Description: 'Role used by the lambda running spark'
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-        - "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
         - !If
             - "HasAdditionalPolicy"
             - !Ref SparkLambdapermissionPolicyArn
@@ -174,15 +172,6 @@ Resources:
             Resource: '*'
           - Effect: Allow
             Action:
-              - dynamodb:PutItem
-              - dynamodb:GetItem
-              - dynamodb:UpdateItem
-              - dynamodb:DeleteItem
-              - dynamodb:BatchWriteItem
-              - dynamodb:BatchGetItem
-            Resource: '*'
-          - Effect: Allow
-            Action:
               - lambda:InvokeFunction
               - lambda:InvokeAsync
             Resource: '*'
@@ -194,12 +183,25 @@ Resources:
               - sqs:GetQueueUrl
               - sqs:SendMessage
             Resource: '*'
+          ## Disabled this because Athena will not be required for this use case
+          # - Effect: Allow
+          #   Action:
+          #     - athena:StartQueryExecution
+          #     - athena:GetQueryExecution
+          #     - athena:GetQueryResults
+          #     - athena:GetTableMetadata
+          #   Resource: '*'
           - Effect: Allow
             Action:
-              - athena:StartQueryExecution
-              - athena:GetQueryExecution
-              - athena:GetQueryResults
-              - athena:GetTableMetadata
+              - dynamodb:CreateTable
+              - dynamodb:DescribeTable
+              - dynamodb:DeleteItem
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:Query
+              - dynamodb:UpdateItem
+              - dynamodb:Scan
+              - dynamodb:BatchWriteItem
             Resource: '*'
           - Effect: Allow
             Action:
@@ -222,7 +224,7 @@ Resources:
           - Effect: Allow
             Action:
               - lakeformation:GetDataAccess
-            Resource: '*'    
+            Resource: '*'
       Roles:
         - !Ref LambdaRole
 
@@ -232,7 +234,6 @@ Resources:
       PackageType: Image
       FunctionName: !Sub '${LambdaFunctionPrefix}-${AWS::StackName}'
       ImageUri: !Ref ImageUri
-      # ReservedConcurrentExecutions: 1
       ImageConfig:
         Command: !Ref Command
         EntryPoint:
@@ -260,15 +261,10 @@ Resources:
         Variables:
           SCRIPT_BUCKET: !Ref ScriptBucket
           SPARK_SCRIPT: !Ref SparkScript
-          #INPUT_PATH: !Ref InputPath
-          #OUTPUT_PATH: !Ref OutputPath
-          CR_TABLE_NAME: !Ref CrTableName
-          DATABASE_NAME: !Ref DatabaseName
-          ICB_WG: !Ref IcbWorkgroup
-          LAMBDA_VERSION: !Ref LambdaVersion
-          RC_TABLE_NAME: !Ref RcTableName
-          WAREHOUSE_BUCKET: !Ref WarehouseBucket
-          LINEAGE_VERIFY_TABLE: !Ref LineageVerifyTable
-          Rebuild: !Ref BuildTrigger
-
-
+          GLUE_DATABASE: !Ref GlueDatabase
+          ICEBERG_TABLE: !Ref IcebergTable
+          S3_BUCKET: !Ref S3Bucket
+          S3_IMAGE_PREFIX: !Ref S3ImagePrefix
+          WHATSAPP_ACCESS_TOKEN: !Ref WhatsappAccessToken
+          ICEBERG_TABLE_LOCATION: !Ref IcebergTableLocation
+          SQS_QUEUE_URL: !Ref SqsQueueUrl
