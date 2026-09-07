@@ -1,16 +1,24 @@
 # SOAL (Spark on AWS Lambda) Stack Implementation
 
 This document describes how the SOAL (Spark on AWS Lambda) CloudFormation stack (`cloudformation/sam-template.yaml`) is
-implemented and deployed. A single template is shared by every environment; per-environment values (region,
-S3 bucket, image repository, and the parameter overrides below) live entirely in `cloudformation/samconfig.yaml`,
-so there's no `Environment` CloudFormation parameter and no per-environment tagging — nothing in the template
-itself needs to change to deploy to a different environment.
+implemented and deployed. A single template is shared by every environment *and* by both workloads
+(lineage and WhatsApp, see below); per-environment/per-workload values (region, S3 bucket, image
+repository, `WorkloadType`, and the parameter overrides below) live entirely in
+`cloudformation/samconfig.yaml`, so there's no `Environment` CloudFormation parameter and no
+per-environment tagging — nothing in the template itself needs to change to deploy to a different
+environment or workload.
 
 ## Overview
 
-`sam-template.yaml` is shared by both the non-prod and prod SOAL stacks. It packages the Spark-on-Lambda
-container image (built by `sam-imagebuilder.yaml`, see [Instructions in the wiki](https://github.com/aws-samples/spark-on-aws-lambda/wiki/Cloudformation))
-into a single AWS Lambda function, along with the supporting IAM role/policy and (optionally) VPC networking.
+`sam-template.yaml` is shared by every SOAL stack: non-prod and prod, and both the lineage and WhatsApp
+workloads. It packages the Spark-on-Lambda container image (built by `sam-imagebuilder.yaml`, see
+[Instructions in the wiki](https://github.com/aws-samples/spark-on-aws-lambda/wiki/Cloudformation)) into a
+single AWS Lambda function, along with the supporting IAM role/policy and (optionally) VPC networking.
+
+A `WorkloadType` parameter (`lineage` or `whatsapp`, default `lineage`) selects which IAM permissions the
+Lambda role gets — see "IAM policy by workload" below. Which workload's environment variables actually
+matter is decided by the script the Lambda runs (`SparkScript`), not by CloudFormation; `WorkloadType`
+only controls IAM.
 
 ### Parameters
 
@@ -33,16 +41,55 @@ defaults to an empty string), but the template no longer bakes in any of the old
 environment's `samconfig.yaml` must set all seven explicitly to get the previous behavior (e.g. a stack
 deployed without `DatabaseName` set will get `DATABASE_NAME=''`, not `powerup-lakeformation`).
 
-There's also a `RoleName` parameter (default `'soal-lineage-loger-role'`) and a `BackupSuffix` parameter
-(default `''`) that combine to form the IAM role name (`${RoleName}${BackupSuffix}`) - `RoleName` lets you
-change the base name entirely, while `BackupSuffix` is a lighter-weight way to avoid role-name collisions
-when standing up a second copy of the stack (e.g. during a migration) alongside an existing one.
+There's also a `WorkloadType` parameter (default `lineage`, `AllowedValues: [lineage, whatsapp]`) that
+selects the Lambda role's IAM permissions (see "IAM policy by workload" below), a `RoleName` parameter
+(no default — always mandatory, both workloads) that names the IAM role, and a `BackupSuffix` parameter
+(default `''`) that combines with `RoleName` to form the role's actual name (`${RoleName}${BackupSuffix}`)
+— `BackupSuffix` is a lighter-weight way to avoid role-name collisions when standing up a second copy of
+the stack (e.g. during a migration) alongside an existing one.
+
+#### WhatsApp-only parameters
+
+The following parameters only matter when `WorkloadType=whatsapp` (they're still accepted, and default to
+`''`, when deploying the lineage workload — they just go unused since the WhatsApp Lambda script is the
+only thing that reads these env vars):
+
+| Parameter             | Mandatory (CFN)? | Environment variable    | Default |
+| ---------------------- | ---------------- | ------------------------ | ------- |
+| `S3Bucket`            | No                | `S3_BUCKET`              | `''`    |
+| `IcebergTableLocation`| No                | `ICEBERG_TABLE_LOCATION` | `''`    |
+| `SqsQueueUrl`         | No                | `SQS_QUEUE_URL`          | `''`    |
+| `GlueDatabase`        | No                | `GLUE_DATABASE`          | `''`    |
+| `IcebergTable`        | No                | `ICEBERG_TABLE`          | `''`    |
+| `S3ImagePrefix`       | No                | `S3_IMAGE_PREFIX`        | `''`    |
+| `WhatsappAccessToken` | No                | `WHATSAPP_ACCESS_TOKEN`  | `''` (`NoEcho`) |
+
+`WhatsappAccessToken` is declared `NoEcho: True`, so CloudFormation masks it in the console/CLI/describe
+calls (it's still visible in plaintext in `samconfig.yaml`, so treat that file as containing a secret).
+
+### IAM policy by workload
+
+`LambdaRole`'s attached policies depend on `WorkloadType`:
+
+- **`lineage`** (`Condition: IsLineage`): gets the `AmazonDynamoDBFullAccess` managed policy plus the
+  `LambdaPolicy` inline policy (ECR pull, S3, scoped DynamoDB item actions, Lambda invoke, SQS, Athena,
+  Glue, LakeFormation).
+- **`whatsapp`** (`Condition: IsWhatsapp`): does *not* get `AmazonDynamoDBFullAccess`; instead gets the
+  `LambdaPolicyWhatsapp` inline policy, which covers the same ECR/S3/Lambda-invoke/SQS/Glue/LakeFormation
+  actions but with a wider set of scoped DynamoDB actions (including `CreateTable`/`DescribeTable`/
+  `Query`/`Scan`) instead of the managed policy, and no Athena access (Athena isn't needed for this
+  workload).
+
+Both inline policies use `Resource: '*'` throughout (aside from the ECR statement, which is scoped to the
+repository parsed out of `ImageUri`) — `WorkloadType` changes *which* policy is attached, not how tightly
+scoped either one is.
 
 ## Per-environment configuration: `samconfig.yaml`
 
-Per-environment values (region, stack name, image repository, S3 bucket, and the parameter overrides
-above) live in `cloudformation/samconfig.yaml`, under a `non-prod: deploy: parameters` or
-`prod: deploy: parameters` section.
+Per-environment/per-workload values (region, stack name, image repository, and the parameter overrides
+above) live in `cloudformation/samconfig.yaml`, under a `non-prod: deploy: parameters`, `prod: deploy:
+parameters`, `whatsapp-non-prod: deploy: parameters`, or `whatsapp-prod: deploy: parameters` section — all
+four point at the same `template_file: sam-template.yaml`.
 
 **SAM CLI does not merge a `default: global: parameters` section into a named `--config-env` section** —
 each environment section is loaded standalone (verify with `sam deploy --config-env non-prod --debug` and
@@ -54,8 +101,9 @@ still satisfies the "every section must be fully specified" rule. `default: glob
 applies on its own when running `sam deploy` with no `--config-env` at all.
 
 `samconfig.yaml` is not committed — it isn't tracked in git since it holds account-specific values like
-ECR repository URIs and S3 bucket names. Each developer/deployment target maintains their own local copy;
-use the shape below as a template for creating one.
+ECR repository URIs, S3 bucket names, and (for the WhatsApp config-envs) the plaintext
+`WhatsappAccessToken`. Each developer/deployment target maintains their own local copy; use the shape
+below as a template for creating one.
 
 > **Note:** only `*.toml` is currently listed in `.gitignore`. If you name your local config
 > `samconfig.yaml` (as opposed to `samconfig.toml`), it stays untracked only until someone runs a broad
@@ -86,6 +134,7 @@ non-prod:
         - ScriptBucket=spark-on-lambda-non-prod
         - SparkScript=scripts/loglineage.py
         - ImageUri=<non-prod-ecr-repo>:latest
+        - RoleName=soal-lineage-loger-role
 
         # Optional to CloudFormation (default '' in sam-template.yaml), but must be set
         - LambdaVersion=staging
@@ -95,9 +144,35 @@ non-prod:
         - IcbWorkgroup=iceberg-workgroup
         - RcTableName=iceberg_records
         - LineageVerifyTable=lineage_verify
+        # WorkloadType defaults to 'lineage', so it's omitted here
+
+whatsapp-non-prod:
+  deploy:
+    parameters:
+      <<: *default_params
+      stack_name: spark-on-lambda-whatsapp-stack
+      region: eu-west-1
+      image_repository: <non-prod-ecr-repo>
+      parameter_overrides:
+        # Required (no default in sam-template.yaml) - must be set
+        - ScriptBucket=spark-on-lambda-non-prod
+        - SparkScript=scripts/soal_whatsapp_api_iceberg_write.py
+        - RoleName=soal_whatsapp_api_iceberg_write-role
+        - ImageUri=<non-prod-ecr-repo>:latest
+        - WorkloadType=whatsapp
+
+        # WhatsApp-only parameters (optional to CloudFormation, but must be set for this workload)
+        - S3Bucket=whatsapp-api-media
+        - IcebergTableLocation=s3://apache-iceberg-whatsapp-api-webook
+        - SqsQueueUrl=https://sqs.eu-west-1.amazonaws.com/<non-prod-account>/webhook_whatsapp_api_write
+        - GlueDatabase=powerup-lakeformation
+        - IcebergTable=webhook_whatsapp_api_messages
+        - S3ImagePrefix=images/
+        - WhatsappAccessToken=<whatsapp-api-access-token>
 ```
 
-The `prod` section follows the same shape with prod account/region/`stack_name`/`image_repository` values.
+The `prod` and `whatsapp-prod` sections follow the same shape as their non-prod counterparts, with prod
+account/region/`stack_name`/`image_repository` values.
 
 Note: `stack-name` and `region` are SAM CLI deploy options, not CloudFormation template parameters — they
 must be set as top-level `stack_name`/`region` keys (as above), never inside `parameter_overrides`.
@@ -105,22 +180,25 @@ Putting `"stack-name=..."` or `"region=..."` in `parameter_overrides` is silentl
 parameter names can't contain hyphens) and produces `Error: Missing option '--stack-name'` since SAM CLI
 never finds a real `stack_name` value. Likewise, don't add `"BackupSuffix="` (empty value) to
 `parameter_overrides` — SAM CLI's `Key=Value` shorthand rejects an empty value; since `BackupSuffix`
-already defaults to `''` in the template, just omit it unless you need a non-empty suffix. The same
-applies to `RoleName`: it already defaults to `'soal-lineage-loger-role'`, so only add it to
-`parameter_overrides` if you need a different base name.
+already defaults to `''` in the template, just omit it unless you need a non-empty suffix. `RoleName` has
+no default and must always be set explicitly in every config-env, for both workloads.
 
 ## Deploying
 
-From the `cloudformation` directory, deploy either environment by name:
+From the `cloudformation` directory, deploy any of the four stacks by config-env name:
 
 ```
 sam deploy --config-env non-prod
 sam deploy --config-env prod
+sam deploy --config-env whatsapp-non-prod
+sam deploy --config-env whatsapp-prod
 ```
 
 `sam deploy` reads the matching `deploy: parameters` section for that environment from `samconfig.yaml`
 and applies it — no need to pass `--parameter-overrides`, `--region`, `--s3-bucket`, or
-`--image-repository` on the command line.
+`--image-repository` on the command line. The `whatsapp-*` config-envs deploy the same
+`sam-template.yaml`, just with `WorkloadType=whatsapp` and the WhatsApp-only parameters set (see "IAM
+policy by workload" and "WhatsApp-only parameters" above).
 
 ### Dry run (preview changes before deploying)
 
@@ -147,44 +225,16 @@ the template syntax first:
 sam validate --template-file sam-template.yaml --lint
 ```
 
-## WhatsApp API stack
+## Superseded WhatsApp templates
 
-`cloudformation/sam-template-whatsapp-api.yaml` follows the same pattern as `sam-template.yaml`: a
-single template shared by every environment, with `RoleName` and the WhatsApp-specific env vars driven
-by `samconfig.yaml`'s `whatsapp-non-prod` / `whatsapp-prod` config-envs instead of being hardcoded.
-
-| Parameter             | Mandatory (CFN)? | Environment variable   | Default |
-| ---------------------- | ---------------- | ----------------------- | ------- |
-| `RoleName`            | Yes               | (IAM role name, not an env var) | none |
-| `S3Bucket`            | No                | `S3_BUCKET`             | `''`    |
-| `IcebergTableLocation`| No                | `ICEBERG_TABLE_LOCATION`| `''`    |
-| `SqsQueueUrl`         | No                | `SQS_QUEUE_URL`         | `''`    |
-| `GlueDatabase`        | No                | `GLUE_DATABASE`         | `''`    |
-| `IcebergTable`        | No                | `ICEBERG_TABLE`         | `''`    |
-| `S3ImagePrefix`       | No                | `S3_IMAGE_PREFIX`       | `''`    |
-| `WhatsappAccessToken` | No                | `WHATSAPP_ACCESS_TOKEN` | `''`    |
-
-`RoleName` has no default and must always be set explicitly (unlike the lineage stack's parameters,
-IAM role names can't sensibly default to an empty string). `ScriptBucket`/`SparkScript`/`ImageUri` and
-the rest of the shared parameters (`LambdaTimeout`, `LambdaMemory`, VPC settings, etc.) behave exactly
-as documented above for `sam-template.yaml`.
-
-Deploy with:
-
-```
-sam deploy --config-env whatsapp-non-prod
-sam deploy --config-env whatsapp-prod
-```
-
-Validate the template syntax offline first:
-
-```
-sam validate --template-file sam-template-whatsapp-api.yaml --lint
-```
-
-Note: `sam-template-whatsapp-api-non-prod.yaml`, `-prod.yaml`, and their `.example.yaml` counterparts
-are the pre-consolidation per-environment templates this new template replaces. They're left in place
-until the consolidated template is verified in both environments, then can be deleted.
+Earlier iterations of the WhatsApp stack lived in their own templates: first per-environment
+(`sam-template-whatsapp-api-non-prod.yaml`, `-prod.yaml`, and their `.example.yaml` counterparts), then
+consolidated into a single `sam-template-whatsapp-api.yaml` shared across environments. Both of those
+approaches are now superseded by the `WorkloadType` parameter on `sam-template.yaml` described above —
+`samconfig.yaml`'s `whatsapp-non-prod`/`whatsapp-prod` config-envs already deploy `sam-template.yaml` with
+`WorkloadType=whatsapp`, not `sam-template-whatsapp-api.yaml`. `sam-template-whatsapp-api.yaml` and its
+predecessors, plus `sam-template.prod.yaml`, are left in place until the `WorkloadType` consolidation is
+verified deployed in both environments, then can be deleted.
 
 ## Building and publishing a new image / template version
 
