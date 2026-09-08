@@ -87,13 +87,13 @@ scoped either one is.
 ## Per-environment configuration: `samconfig.yaml`
 
 Per-environment/per-workload values (region, stack name, image repository, and the parameter overrides
-above) live in `cloudformation/samconfig.yaml`, under a `non-prod: deploy: parameters`, `prod: deploy:
-parameters`, `whatsapp-non-prod: deploy: parameters`, or `whatsapp-prod: deploy: parameters` section — all
-four point at the same `template_file: sam-template.yaml`.
+above) live in `cloudformation/samconfig.yaml`, under a `lineage-non-prod: deploy: parameters`,
+`lineage-prod: deploy: parameters`, `whatsapp-non-prod: deploy: parameters`, or `whatsapp-prod: deploy:
+parameters` section — all four point at the same `template_file: sam-template.yaml`.
 
 **SAM CLI does not merge a `default: global: parameters` section into a named `--config-env` section** —
-each environment section is loaded standalone (verify with `sam deploy --config-env non-prod --debug` and
-check the "Configuration values are" log line). So `template_file`, `capabilities`, `resolve_s3`,
+each environment section is loaded standalone (verify with `sam deploy --config-env lineage-non-prod
+--debug` and check the "Configuration values are" log line). So `template_file`, `capabilities`, `resolve_s3`,
 `region`, and `stack_name` must be repeated in full in every environment's own section, not just in
 `default`. Use a YAML anchor (`&default_params` / `<<: *default_params`) to avoid re-typing the shared
 keys, as shown below — this merges them at YAML-parse time, before SAM CLI ever sees the config, so it
@@ -105,9 +105,8 @@ ECR repository URIs, S3 bucket names, and (for the WhatsApp config-envs) the pla
 `WhatsappAccessToken`. Each developer/deployment target maintains their own local copy; use the shape
 below as a template for creating one.
 
-> **Note:** only `*.toml` is currently listed in `.gitignore`. If you name your local config
-> `samconfig.yaml` (as opposed to `samconfig.toml`), it stays untracked only until someone runs a broad
-> `git add`. Double check `git status` before staging, or add `samconfig.yaml` to `.gitignore` yourself.
+> **Note:** `.gitignore` has a `samconfig.*` entry, so `samconfig.yaml` (as well as `samconfig.toml`) stays
+> untracked automatically — no need to add it yourself or double check before a broad `git add`.
 
 To change a value for an environment, edit its section in your local `samconfig.yaml` — there's no need to
 touch the template itself.
@@ -122,7 +121,7 @@ default:
       capabilities: CAPABILITY_IAM CAPABILITY_NAMED_IAM
       resolve_s3: true
 
-non-prod:
+lineage-non-prod:
   deploy:
     parameters:
       <<: *default_params
@@ -130,21 +129,33 @@ non-prod:
       region: eu-west-1
       image_repository: <non-prod-ecr-repo>
       parameter_overrides:
-        # Required (no default in sam-template.yaml) - must be set
+        # Mandatory (no default in sam-template.yaml) - must be set
         - ScriptBucket=spark-on-lambda-non-prod
         - SparkScript=scripts/loglineage.py
         - ImageUri=<non-prod-ecr-repo>:latest
         - RoleName=soal-lineage-loger-role
 
-        # Optional to CloudFormation (default '' in sam-template.yaml), but must be set
+        # Optional (has a default in sam-template.yaml) - only listed here to override
         - LambdaVersion=staging
         - WarehouseBucket=s3://apache-iceberg-datalineage-<non-prod-account>/
+        # - WorkloadType=lineage
+        # - BuildTrigger=v1
+        # - BackupSuffix=
+        # - LambdaFunctionPrefix=SparkOnAWSLambda
+        # - LambdaTimeout=300
+        # - LambdaMemory=1600
+        # - SparkLambdapermissionPolicyArn=
+        # - AttachToVpc=False
+        # - SecurityGroupIds=
+        # - SubnetIds=
+        # - Command=sparkLambdaHandler.lambda_handler
+        # - EntryPoint=
+        # - WorkingDirectory=
         - CrTableName=iceberg_curated
         - DatabaseName=powerup-lakeformation
         - IcbWorkgroup=iceberg-workgroup
         - RcTableName=iceberg_records
         - LineageVerifyTable=lineage_verify
-        # WorkloadType defaults to 'lineage', so it's omitted here
 
 whatsapp-non-prod:
   deploy:
@@ -154,12 +165,25 @@ whatsapp-non-prod:
       region: eu-west-1
       image_repository: <non-prod-ecr-repo>
       parameter_overrides:
-        # Required (no default in sam-template.yaml) - must be set
+        # Mandatory (no default in sam-template.yaml) - must be set
         - ScriptBucket=spark-on-lambda-non-prod
         - SparkScript=scripts/soal_whatsapp_api_iceberg_write.py
         - RoleName=soal_whatsapp_api_iceberg_write-role
         - ImageUri=<non-prod-ecr-repo>:latest
         - WorkloadType=whatsapp
+
+        # Optional (has a default in sam-template.yaml) - only listed here to override
+        # - LambdaFunctionPrefix=SparkOnAWSLambda
+        # - LambdaTimeout=300
+        # - LambdaMemory=1600
+        # - SparkLambdapermissionPolicyArn=
+        # - AttachToVpc=False
+        # - SecurityGroupIds=
+        # - SubnetIds=
+        # - Command=sparkLambdaHandler.lambda_handler
+        # - EntryPoint=
+        # - WorkingDirectory=
+        # - BackupSuffix=
 
         # WhatsApp-only parameters (optional to CloudFormation, but must be set for this workload)
         - S3Bucket=whatsapp-api-media
@@ -171,8 +195,8 @@ whatsapp-non-prod:
         - WhatsappAccessToken=<whatsapp-api-access-token>
 ```
 
-The `prod` and `whatsapp-prod` sections follow the same shape as their non-prod counterparts, with prod
-account/region/`stack_name`/`image_repository` values.
+The `lineage-prod` and `whatsapp-prod` sections follow the same shape as their non-prod counterparts, with
+prod account/region/`stack_name`/`image_repository` values.
 
 Note: `stack-name` and `region` are SAM CLI deploy options, not CloudFormation template parameters — they
 must be set as top-level `stack_name`/`region` keys (as above), never inside `parameter_overrides`.
@@ -188,8 +212,8 @@ no default and must always be set explicitly in every config-env, for both workl
 From the `cloudformation` directory, deploy any of the four stacks by config-env name:
 
 ```
-sam deploy --config-env non-prod
-sam deploy --config-env prod
+sam deploy --config-env lineage-non-prod
+sam deploy --config-env lineage-prod
 sam deploy --config-env whatsapp-non-prod
 sam deploy --config-env whatsapp-prod
 ```
@@ -207,8 +231,8 @@ CLI creates the CloudFormation change set and prints/uploads it without executin
 stack actually changes.
 
 ```
-sam deploy --config-env non-prod --no-execute-changeset
-sam deploy --config-env prod --no-execute-changeset
+sam deploy --config-env lineage-non-prod --no-execute-changeset
+sam deploy --config-env lineage-prod --no-execute-changeset
 ```
 
 This still requires valid credentials and package/upload access (it builds the image, uploads artifacts,
@@ -225,16 +249,16 @@ the template syntax first:
 sam validate --template-file sam-template.yaml --lint
 ```
 
-## Superseded WhatsApp templates
+## History: removed legacy templates
 
 Earlier iterations of the WhatsApp stack lived in their own templates: first per-environment
 (`sam-template-whatsapp-api-non-prod.yaml`, `-prod.yaml`, and their `.example.yaml` counterparts), then
-consolidated into a single `sam-template-whatsapp-api.yaml` shared across environments. Both of those
-approaches are now superseded by the `WorkloadType` parameter on `sam-template.yaml` described above —
-`samconfig.yaml`'s `whatsapp-non-prod`/`whatsapp-prod` config-envs already deploy `sam-template.yaml` with
-`WorkloadType=whatsapp`, not `sam-template-whatsapp-api.yaml`. `sam-template-whatsapp-api.yaml` and its
-predecessors, plus `sam-template.prod.yaml`, are left in place until the `WorkloadType` consolidation is
-verified deployed in both environments, then can be deleted.
+consolidated into a single `sam-template-whatsapp-api.yaml` shared across environments. There was also a
+separate `sam-template.prod.yaml` for the lineage workload before it was folded into the single
+`sam-template.yaml`. All of these were superseded by the `WorkloadType` parameter on `sam-template.yaml`
+described above — `samconfig.yaml`'s `whatsapp-non-prod`/`whatsapp-prod` config-envs deploy
+`sam-template.yaml` with `WorkloadType=whatsapp`, not a separate template — and have since been deleted
+from the repository. `cloudformation/` now contains only `sam-template.yaml` and `sam-imagebuilder.yaml`.
 
 ## Building and publishing a new image / template version
 
