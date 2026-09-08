@@ -186,171 +186,25 @@ Resources:
                 - 'lambda.amazonaws.com'
             Action: 'sts:AssumeRole'
 
-  LambdaPolicy:
-    Type: 'AWS::IAM::Policy'
+  LineagePolicyStack:
+    Type: 'AWS::CloudFormation::Stack'
     Condition: IsLineage
     Properties:
-      PolicyName: !Sub 'SparkOnLmandaDefaulPolicy-${AWS::StackName}'
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Action:
-              - ecr:GetAuthorizationToken
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - ecr:BatchCheckLayerAvailability
-              - ecr:GetDownloadUrlForLayer
-              - ecr:BatchGetImage
-            Resource:
-              Fn::Sub:
-                - "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}"
-                - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
-          - Effect: Allow
-            Action:
-              - s3:ListBucket
-              - s3:GetObject
-              - s3:PutObject
-              - s3:DeleteObject
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - dynamodb:PutItem
-              - dynamodb:GetItem
-              - dynamodb:UpdateItem
-              - dynamodb:DeleteItem
-              - dynamodb:BatchWriteItem
-              - dynamodb:BatchGetItem
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - lambda:InvokeFunction
-              - lambda:InvokeAsync
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - sqs:ReceiveMessage
-              - sqs:DeleteMessage
-              - sqs:GetQueueAttributes
-              - sqs:GetQueueUrl
-              - sqs:SendMessage
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - athena:StartQueryExecution
-              - athena:GetQueryExecution
-              - athena:GetQueryResults
-              - athena:GetTableMetadata
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:GetObject
-              - s3:ListBucket
-              - s3:PutObject
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - glue:GetDatabase
-              - glue:GetDatabases
-              - glue:GetTable
-              - glue:GetPartitions
-              - glue:UpdateTable
-              - glue:CreateTable
-              - glue:BatchCreatePartition
-              - glue:BatchDeletePartition
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - lakeformation:GetDataAccess
-            Resource: '*'
-      Roles:
-        - !Ref LambdaRole
+      TemplateURL: ./policies/lineage-policy.yaml
+      Parameters:
+        ParentStackName: !Ref AWS::StackName
+        RoleName: !Ref LambdaRole
+        ImageUri: !Ref ImageUri
 
-  LambdaPolicyWhatsapp:
-    Type: 'AWS::IAM::Policy'
+  WhatsappPolicyStack:
+    Type: 'AWS::CloudFormation::Stack'
     Condition: IsWhatsapp
     Properties:
-      PolicyName: !Sub 'SparkOnLmandaDefaulPolicy-${AWS::StackName}'
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Action:
-              - ecr:GetAuthorizationToken
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - ecr:BatchCheckLayerAvailability
-              - ecr:GetDownloadUrlForLayer
-              - ecr:BatchGetImage
-            Resource:
-              Fn::Sub:
-                - "arn:aws:ecr:${AWS::Region}:${AWS::Account}:repository/${RepositoryName}"
-                - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
-          - Effect: Allow
-            Action:
-              - s3:ListBucket
-              - s3:GetObject
-              - s3:PutObject
-              - s3:DeleteObject
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - lambda:InvokeFunction
-              - lambda:InvokeAsync
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - sqs:ReceiveMessage
-              - sqs:DeleteMessage
-              - sqs:GetQueueAttributes
-              - sqs:GetQueueUrl
-              - sqs:SendMessage
-            Resource: '*'
-          ## Disabled this because Athena will not be required for this use case
-          # - Effect: Allow
-          #   Action:
-          #     - athena:StartQueryExecution
-          #     - athena:GetQueryExecution
-          #     - athena:GetQueryResults
-          #     - athena:GetTableMetadata
-          #   Resource: '*'
-          - Effect: Allow
-            Action:
-              - dynamodb:CreateTable
-              - dynamodb:DescribeTable
-              - dynamodb:DeleteItem
-              - dynamodb:GetItem
-              - dynamodb:PutItem
-              - dynamodb:Query
-              - dynamodb:UpdateItem
-              - dynamodb:Scan
-              - dynamodb:BatchWriteItem
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:GetObject
-              - s3:ListBucket
-              - s3:PutObject
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - glue:GetDatabase
-              - glue:GetDatabases
-              - glue:GetTable
-              - glue:GetPartitions
-              - glue:UpdateTable
-              - glue:CreateTable
-              - glue:BatchCreatePartition
-              - glue:BatchDeletePartition
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - lakeformation:GetDataAccess
-            Resource: '*'
-      Roles:
-        - !Ref LambdaRole
+      TemplateURL: ./policies/whatsapp-policy.yaml
+      Parameters:
+        ParentStackName: !Ref AWS::StackName
+        RoleName: !Ref LambdaRole
+        ImageUri: !Ref ImageUri
 
   SparkLambda:
     Type: 'AWS::Serverless::Function'

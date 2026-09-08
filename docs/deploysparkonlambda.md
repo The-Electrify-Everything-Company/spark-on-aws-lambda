@@ -69,20 +69,39 @@ calls (it's still visible in plaintext in `samconfig.yaml`, so treat that file a
 
 ### IAM policy by workload
 
-`LambdaRole`'s attached policies depend on `WorkloadType`:
+`LambdaRole`'s attached policies depend on `WorkloadType`. Rather than being defined inline in
+`sam-template.yaml`, each workload's policy lives in its own nested-stack template under
+`cloudformation/policies/`, referenced from `sam-template.yaml` via an `AWS::CloudFormation::Stack`
+resource gated by the same Condition that used to gate the inline policy. This keeps the shared
+template from growing every time a new `WorkloadType` is added — a new workload means adding one
+`cloudformation/policies/<workload>-policy.yaml` file and one nested-stack resource, not another
+inline policy block in `sam-template.yaml`'s `Resources:` section.
 
-- **`lineage`** (`Condition: IsLineage`): gets the `AmazonDynamoDBFullAccess` managed policy plus the
-  `LambdaPolicy` inline policy (ECR pull, S3, scoped DynamoDB item actions, Lambda invoke, SQS, Athena,
-  Glue, LakeFormation).
-- **`whatsapp`** (`Condition: IsWhatsapp`): does *not* get `AmazonDynamoDBFullAccess`; instead gets the
-  `LambdaPolicyWhatsapp` inline policy, which covers the same ECR/S3/Lambda-invoke/SQS/Glue/LakeFormation
-  actions but with a wider set of scoped DynamoDB actions (including `CreateTable`/`DescribeTable`/
-  `Query`/`Scan`) instead of the managed policy, and no Athena access (Athena isn't needed for this
-  workload).
+- **`lineage`** (`Condition: IsLineage`): `LineagePolicyStack` nested stack
+  (`cloudformation/policies/lineage-policy.yaml`). `LambdaRole` gets the `AmazonDynamoDBFullAccess`
+  managed policy plus this nested stack's policy (ECR pull, S3, scoped DynamoDB item actions, Lambda
+  invoke, SQS, Athena, Glue, LakeFormation).
+- **`whatsapp`** (`Condition: IsWhatsapp`): `WhatsappPolicyStack` nested stack
+  (`cloudformation/policies/whatsapp-policy.yaml`). `LambdaRole` does *not* get
+  `AmazonDynamoDBFullAccess`; instead it gets this nested stack's policy, which covers the same
+  ECR/S3/Lambda-invoke/SQS/Glue/LakeFormation actions but with a wider set of scoped DynamoDB actions
+  (including `CreateTable`/`DescribeTable`/`Query`/`Scan`) instead of the managed policy, and no
+  Athena access (Athena isn't needed for this workload).
 
-Both inline policies use `Resource: '*'` throughout (aside from the ECR statement, which is scoped to the
+Both policies use `Resource: '*'` throughout (aside from the ECR statement, which is scoped to the
 repository parsed out of `ImageUri`) — `WorkloadType` changes *which* policy is attached, not how tightly
-scoped either one is.
+scoped either one is. Each nested stack takes `ParentStackName`, `RoleName`, and `ImageUri` as
+parameters (passed from `sam-template.yaml`) so the policy name and ECR scoping match what the inline
+resources previously produced.
+
+`samconfig.yaml`'s `resolve_s3: true` (already set for every config-env) means SAM CLI auto-uploads
+these local nested-stack template files during `sam deploy`/`sam package`, the same way it already
+handles the container image — no changes to the deploy commands below are needed.
+
+> **Note:** the WhatsApp policy's ECR statement previously referenced the pseudo parameter
+> `${AWS::Account}`, which isn't valid CloudFormation (the correct pseudo parameter is
+> `${AWS::AccountId}`, used correctly in the lineage policy). This was fixed when the policy moved
+> into its own nested-stack template.
 
 ## Per-environment configuration: `samconfig.yaml`
 
@@ -258,7 +277,16 @@ separate `sam-template.prod.yaml` for the lineage workload before it was folded 
 `sam-template.yaml`. All of these were superseded by the `WorkloadType` parameter on `sam-template.yaml`
 described above — `samconfig.yaml`'s `whatsapp-non-prod`/`whatsapp-prod` config-envs deploy
 `sam-template.yaml` with `WorkloadType=whatsapp`, not a separate template — and have since been deleted
-from the repository. `cloudformation/` now contains only `sam-template.yaml` and `sam-imagebuilder.yaml`.
+from the repository.
+
+That consolidation was about eliminating *duplicate per-environment* templates that all described the
+same stack shape. It's a different axis from the per-workload IAM policy split described in "IAM
+policy by workload" above: `cloudformation/policies/lineage-policy.yaml` and
+`whatsapp-policy.yaml` aren't per-environment duplicates of `sam-template.yaml` — they're nested
+stacks that let `sam-template.yaml` stay a single shared template as more `WorkloadType`s are added,
+instead of growing indefinitely with another inline policy block per workload. `cloudformation/` now
+contains `sam-template.yaml`, `sam-imagebuilder.yaml`, and a `policies/` directory of per-workload
+nested-stack templates.
 
 ## Building and publishing a new image / template version
 
