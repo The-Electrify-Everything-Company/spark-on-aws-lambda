@@ -27,6 +27,7 @@ Parameters:
   RoleName:
     Description: 'Mandatory: Base name for the IAM role created for the Lambda function (before BackupSuffix is appended)'
     Type: String
+    Default: ''
   WorkloadType:
     Description: 'Mandatory: Which workload this stack runs, selects the IAM permissions attached to the Lambda role'
     Type: String
@@ -203,10 +204,8 @@ Resources:
               - ecr:BatchGetImage
             Resource:
               Fn::Sub:
-                - "arn:aws:ecr:${Region}:${Account}:repository/${RepositoryName}"
-                - Region: !Select [3, !Split [".", !Ref ImageUri ]]
-                  Account: !Select [0, !Split [".", !Ref ImageUri ]]
-                  RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
+                - "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}"
+                - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
           - Effect: Allow
             Action:
               - s3:ListBucket
@@ -286,10 +285,8 @@ Resources:
               - ecr:BatchGetImage
             Resource:
               Fn::Sub:
-                - "arn:aws:ecr:${Region}:${Account}:repository/${RepositoryName}"
-                - Region: !Select [3, !Split [".", !Ref ImageUri ]]
-                  Account: !Select [0, !Split [".", !Ref ImageUri ]]
-                  RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
+                - "arn:aws:ecr:${AWS::Region}:${AWS::Account}:repository/${RepositoryName}"
+                - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
           - Effect: Allow
             Action:
               - s3:ListBucket
@@ -360,7 +357,11 @@ Resources:
     Properties:
       PackageType: Image
       FunctionName: !Sub '${LambdaFunctionPrefix}-${AWS::StackName}'
-      ImageUri: !Ref ImageUri
+      ImageUri: !Sub
+         - '${ImageUriPrefix}${BackupSuffix}:latest'
+         - ImageUriPrefix: !Select [0, !Split [":", !Ref ImageUri]]
+
+
       # ReservedConcurrentExecutions: 1
       ImageConfig:
         Command: !Ref Command
@@ -387,7 +388,7 @@ Resources:
           - !Ref "AWS::NoValue"
       Environment:
         Variables:
-          SCRIPT_BUCKET: !Ref ScriptBucket
+          SCRIPT_BUCKET: !Sub ${ScriptBucket}${BackupSuffix}
           SPARK_SCRIPT: !Ref SparkScript
           #INPUT_PATH: !Ref InputPath
           #OUTPUT_PATH: !Ref OutputPath
@@ -396,14 +397,14 @@ Resources:
           ICB_WG: !Ref IcbWorkgroup
           LAMBDA_VERSION: !Ref LambdaVersion
           RC_TABLE_NAME: !Ref RcTableName
-          WAREHOUSE_BUCKET: !Ref WarehouseBucket
+          WAREHOUSE_BUCKET: !Sub ${WarehouseBucket}${BackupSuffix}
           LINEAGE_VERIFY_TABLE: !Ref LineageVerifyTable
           GLUE_DATABASE: !Ref GlueDatabase
           ICEBERG_TABLE: !Ref IcebergTable
-          S3_BUCKET: !Ref S3Bucket
+          S3_BUCKET: !Sub ${S3Bucket}${BackupSuffix}
           S3_IMAGE_PREFIX: !Ref S3ImagePrefix
           WHATSAPP_ACCESS_TOKEN: !Ref WhatsappAccessToken
-          ICEBERG_TABLE_LOCATION: !Ref IcebergTableLocation
+          ICEBERG_TABLE_LOCATION: !Sub ${IcebergTableLocation}${BackupSuffix}
           SQS_QUEUE_URL: !Ref SqsQueueUrl
           Rebuild: !Ref BuildTrigger
 
