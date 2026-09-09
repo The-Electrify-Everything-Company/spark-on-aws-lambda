@@ -3,10 +3,8 @@
 This document describes how the SOAL (Spark on AWS Lambda) CloudFormation stack (`cloudformation/sam-template.yaml`) is
 implemented and deployed. A single template is shared by every environment *and* by both workloads
 (lineage and WhatsApp, see below); per-environment/per-workload values (region, S3 bucket, image
-repository, `WorkloadType`, and the parameter overrides below) live entirely in
-`cloudformation/samconfig.yaml`, so there's no `Environment` CloudFormation parameter and no
-per-environment tagging — nothing in the template itself needs to change to deploy to a different
-environment or workload.
+repository, `WorkloadType`, and the parameter overrides below) live entirely in `samconfig.yaml` at the
+repository root.
 
 ## Overview
 
@@ -16,18 +14,54 @@ workloads. It packages the Spark-on-Lambda container image (built by `sam-imageb
 single AWS Lambda function, along with the supporting IAM role/policy and (optionally) VPC networking.
 
 A `WorkloadType` parameter (`lineage` or `whatsapp`, default `lineage`) selects which IAM permissions the
-Lambda role gets — see "IAM policy by workload" below. Which workload's environment variables actually
-matter is decided by the script the Lambda runs (`SparkScript`), not by CloudFormation; `WorkloadType`
-only controls IAM.
+Lambda role gets — see "IAM policy by workload" below — *and* which of the workload-specific environment
+variables below are actually assigned to the Lambda. `SparkScript` still decides which script runs; the
+`Environment.Variables` map wraps each workload-specific entry in an `Fn::If` on `IsLineage`/`IsWhatsapp`
+that resolves to `AWS::NoValue` for the other workload, so CloudFormation omits the key entirely (it's
+not just left as `''`) when it doesn't apply.
 
 ### Parameters
 
 In addition to the existing image/script parameters, the template takes the following parameters that feed
-the Lambda function's environment variables:
+the Lambda function's environment variables.
+
+#### Common parameters
+
+These are assigned unconditionally, regardless of `WorkloadType`:
 
 | Parameter            | Mandatory (CFN)? | Environment variable   | Default    |
 | --------------------- | ---------------- | ----------------------- | ---------- |
 | `LambdaVersion`       | No               | `LAMBDA_VERSION`        | `''`       |
+| `BuildTrigger`        | No               | `Rebuild`               | `v1`       |
+
+There's also a `WorkloadType` parameter (default `lineage`, `AllowedValues: [lineage, whatsapp]`) that
+selects the Lambda role's IAM permissions and the workload-specific env vars below (see "IAM policy by
+workload" below), a `RoleName` parameter (no default — always mandatory, both workloads) that names the
+IAM role, and a `BackupSuffix` parameter (default `''`) that combines with `RoleName` to form the role's
+actual name (`${RoleName}${BackupSuffix}`) — `BackupSuffix` is a lighter-weight way to avoid role-name
+collisions when standing up a second copy of the stack (e.g. during a migration) alongside an existing one.
+
+`BackupSuffix` isn't limited to the role name — it's also folded into the deployed image reference and a
+few env vars, so a non-empty `BackupSuffix` gives the second copy of the stack its own image tag and
+storage locations, not just its own role:
+
+- **`ImageUri`**: any existing `:tag` on the supplied `ImageUri` is stripped and replaced, so the Lambda
+  actually deploys `<repo>${BackupSuffix}:latest` regardless of the tag passed in.
+- **Env vars**: `SCRIPT_BUCKET` (from `ScriptBucket`), `WAREHOUSE_BUCKET` (from `WarehouseBucket`,
+  lineage-only), `S3_BUCKET` (from `S3Bucket`, whatsapp-only), and `ICEBERG_TABLE_LOCATION` (from
+  `IcebergTableLocation`, whatsapp-only) each get `${BackupSuffix}` appended.
+
+No other env var (table names, workgroup, queue URL, etc.) or the Lambda function's own name picks up
+`BackupSuffix`.
+
+#### Lineage-only parameters
+
+The following parameters are only assigned to the Lambda's environment when `WorkloadType=lineage`; on a
+`whatsapp` deployment CloudFormation omits these keys from `Environment.Variables` entirely (via
+`Fn::If`/`AWS::NoValue`), regardless of what value is passed in:
+
+| Parameter            | Mandatory (CFN)? | Environment variable   | Default    |
+| --------------------- | ---------------- | ----------------------- | ---------- |
 | `WarehouseBucket`     | No               | `WAREHOUSE_BUCKET`      | `''`       |
 | `CrTableName`         | No               | `CR_TABLE_NAME`         | `''`       |
 | `DatabaseName`        | No               | `DATABASE_NAME`         | `''`       |
@@ -35,22 +69,14 @@ the Lambda function's environment variables:
 | `RcTableName`         | No               | `RC_TABLE_NAME`         | `''`       |
 | `LineageVerifyTable`  | No               | `LINEAGE_VERIFY_TABLE`  | `''`       |
 
-CloudFormation treats all of them as optional (each defaults to an empty string) — the template does not
-bake in any values, so every environment's `samconfig.yaml` must set the ones it needs explicitly (e.g. a
-stack deployed without `DatabaseName` set will get `DATABASE_NAME=''`).
-
-There's also a `WorkloadType` parameter (default `lineage`, `AllowedValues: [lineage, whatsapp]`) that
-selects the Lambda role's IAM permissions (see "IAM policy by workload" below), a `RoleName` parameter
-(no default — always mandatory, both workloads) that names the IAM role, and a `BackupSuffix` parameter
-(default `''`) that combines with `RoleName` to form the role's actual name (`${RoleName}${BackupSuffix}`)
-— `BackupSuffix` is a lighter-weight way to avoid role-name collisions when standing up a second copy of
-the stack (e.g. during a migration) alongside an existing one.
+CloudFormation still treats all of them as optional (each defaults to an empty string), so every
+lineage environment's `samconfig.yaml` must set the ones it needs explicitly.
 
 #### WhatsApp-only parameters
 
-The following parameters only matter when `WorkloadType=whatsapp` (they're still accepted, and default to
-`''`, when deploying the lineage workload — they just go unused since the WhatsApp Lambda script is the
-only thing that reads these env vars):
+The following parameters are only assigned to the Lambda's environment when `WorkloadType=whatsapp`; on a
+`lineage` deployment CloudFormation omits these keys from `Environment.Variables` entirely (via
+`Fn::If`/`AWS::NoValue`), regardless of what value is passed in:
 
 | Parameter             | Mandatory (CFN)? | Environment variable    | Default |
 | ---------------------- | ---------------- | ------------------------ | ------- |
@@ -67,7 +93,9 @@ calls (it's still visible in plaintext in `samconfig.yaml`, so treat that file a
 
 ### IAM policy by workload
 
-`LambdaRole`'s attached policies depend on `WorkloadType`. Each workload's policy lives in its own
+`LambdaRole`'s attached policies depend on `WorkloadType`, in addition to policies attached regardless of
+workload: `AWSLambdaBasicExecutionRole` (always), `AWSLambdaVPCAccessExecutionRole` (when
+`AttachToVpc=True`), and any ARN passed via `SparkLambdapermissionPolicyArn`. Each workload's policy lives in its own
 nested-stack template under `cloudformation/policies/`, referenced from `sam-template.yaml` via an
 `AWS::CloudFormation::Stack` resource gated by a Condition (`IsLineage`/`IsWhatsapp`). Adding a new
 workload means adding one `cloudformation/policies/<workload>-policy.yaml` file and one nested-stack
@@ -96,9 +124,11 @@ image — no extra deploy commands are needed for them.
 ## Per-environment configuration: `samconfig.yaml`
 
 Per-environment/per-workload values (region, stack name, image repository, and the parameter overrides
-above) live in `cloudformation/samconfig.yaml`, under a `lineage-non-prod: deploy: parameters`,
-`lineage-prod: deploy: parameters`, `whatsapp-non-prod: deploy: parameters`, or `whatsapp-prod: deploy:
-parameters` section — all four point at the same `template_file: sam-template.yaml`.
+above) live in `samconfig.yaml` at the repository root (not inside `cloudformation/`), under a
+`lineage-non-prod: deploy: parameters`, `lineage-prod: deploy: parameters`, `whatsapp-non-prod: deploy:
+parameters`, or `whatsapp-prod: deploy: parameters` section — all four point at the same
+`template_file: cloudformation/sam-template.yaml`, a path relative to the repository root (see
+"Deploying" below for why commands are run from there).
 
 **SAM CLI does not merge a `default: global: parameters` section into a named `--config-env` section** —
 each environment section is loaded standalone (verify with `sam deploy --config-env lineage-non-prod
@@ -126,7 +156,7 @@ version: 0.1
 default:
   global:
     parameters: &default_params
-      template_file: sam-template.yaml
+      template_file: cloudformation/sam-template.yaml
       capabilities: CAPABILITY_IAM CAPABILITY_NAMED_IAM
       resolve_s3: true
 
@@ -218,7 +248,7 @@ no default and must always be set explicitly in every config-env, for both workl
 
 ## Deploying
 
-From the `cloudformation` directory, deploy any of the four stacks by config-env name:
+From the repository root (where `samconfig.yaml` lives), deploy any of the four stacks by config-env name:
 
 ```
 sam deploy --config-env lineage-non-prod
@@ -255,7 +285,7 @@ For a fully offline sanity check with no AWS calls at all (e.g. before even atte
 the template syntax first:
 
 ```
-sam validate --template-file sam-template.yaml --lint
+sam validate --template-file cloudformation/sam-template.yaml --lint
 ```
 
 ## Repository layout
@@ -263,7 +293,9 @@ sam validate --template-file sam-template.yaml --lint
 `cloudformation/` contains `sam-template.yaml`, `sam-imagebuilder.yaml`, and a `policies/` directory of
 per-workload nested-stack templates (`lineage-policy.yaml`, `whatsapp-policy.yaml`). A single
 `sam-template.yaml`, selected by `WorkloadType`, deploys all four stacks (lineage/WhatsApp ×
-non-prod/prod) — there are no per-environment or per-workload copies of the template.
+non-prod/prod) — there are no per-environment or per-workload copies of the template. `samconfig.yaml`
+itself is gitignored and lives at the repository root, not inside `cloudformation/` (see "Per-environment
+configuration" above).
 
 ## Building and publishing a new image / template version
 
