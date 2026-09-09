@@ -89,5 +89,14 @@ Resources:
             Action:
               - lakeformation:GetDataAccess
             Resource: '*'
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource:
+              Fn::Sub: 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/spark-on-lambda/whatsapp/access-token'
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+            Resource: '*'
       Roles:
         - !Ref RoleName

@@ -1,0 +1,114 @@
+version: 0.1
+
+# NOTE: SAM CLI does NOT merge the `default: global: parameters` section into a named
+# --config-env section (e.g. `non-prod: deploy: parameters`) - each environment section
+# is loaded standalone. So template_file/capabilities/resolve_s3/region/stack_name and
+# every parameter override must be fully specified in each environment's own section.
+
+default: 
+  global:
+    parameters: &default_params
+      template_file: cloudformation/sam-template.yaml
+      capabilities: CAPABILITY_IAM CAPABILITY_NAMED_IAM
+      resolve_s3: true
+
+
+lineage-non-prod:
+  deploy:
+    parameters:  
+      <<: *default_params
+      stack_name: spark-on-lambda-stack
+      region: eu-west-1
+      image_repository: 533267385393.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder-dr
+      parameter_overrides:
+        # Mandatory (no default in sam-template.yaml) - must be set
+        - ScriptBucket=spark-on-lambda-non-prod
+        - SparkScript=scripts/loglineage.py
+        - ImageUri=533267385393.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder:latest
+        - RoleName=soal-lineage-loger-role
+
+        # Optional (has a default in sam-template.yaml) - only listed here to override
+        - LambdaVersion=staging
+        - WarehouseBucket=s3://apache-iceberg-datalineage-533267385393
+        # - BuildTrigger=v1
+        # - BackupSuffix=-dr
+
+        - CrTableName=iceberg_curated
+        - DatabaseName=powerup-lakeformation
+        - IcbWorkgroup=iceberg-workgroup
+        - RcTableName=iceberg_records
+        - LineageVerifyTable=lineage_verify
+       
+
+whatsapp-non-prod:
+  deploy:
+    parameters:
+      <<: *default_params
+      stack_name: spark-on-lambda-whatsapp-stack
+      region: eu-west-1
+      image_repository: 533267385393.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder
+      parameter_overrides:
+        # Mandatory (no default in sam-template.yaml) - must be set
+        - ScriptBucket=spark-on-lambda-non-prod
+        - SparkScript=scripts/soal_whatsapp_api_iceberg_write.py
+        - RoleName=soal_whatsapp_api_iceberg_write-role
+        - ImageUri=533267385393.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder:latest
+        - WorkloadType=whatsapp
+
+        # Optional (has a default in sam-template.yaml) - only listed here to override
+        # - BackupSuffix=-dr
+        - S3Bucket=whatsapp-api-media
+        - IcebergTableLocation=s3://apache-iceberg-whatsapp-api-webook
+        - SqsQueueUrl=https://sqs.eu-west-1.amazonaws.com/533267385393/webhook_whatsapp_api_write
+        - GlueDatabase=powerup-lakeformation
+        - IcebergTable=webhook_whatsapp_api_messages
+        - S3ImagePrefix=images/
+
+lineage-prod:
+  deploy:
+    parameters:
+      <<: *default_params
+      stack_name: spark-on-lambda-stack
+      region: eu-west-1
+      image_repository: 590183814935.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder
+      parameter_overrides:
+        # Mandatory (no default in sam-template.yaml) - must be set
+        - ScriptBucket=spark-on-lambda-prod
+        - SparkScript=scripts/loglineage.py
+        - ImageUri=590183814935.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder:latest
+        - RoleName=soal-lineage-loger-role
+        # Optional (has a default in sam-template.yaml) - only listed here to override
+        - LambdaVersion=v1.1.7
+        - WarehouseBucket=s3://apache-iceberg-datalineage-590183814935
+        # - BuildTrigger=v1
+        # - BackupSuffix=-dr
+        - CrTableName=iceberg_curated
+        - DatabaseName=powerup-lakeformation
+        - IcbWorkgroup=iceberg-workgroup
+        - RcTableName=iceberg_records
+        - LineageVerifyTable=lineage_verify
+        
+
+whatsapp-prod:
+  deploy:
+    parameters:
+      <<: *default_params
+      stack_name: spark-on-lambda-whatsapp-stack
+      region: eu-west-1
+      image_repository: 590183814935.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder
+      parameter_overrides:
+        # Mandatory (no default in sam-template.yaml) - must be set
+        - ScriptBucket=spark-on-lambda-prod
+        - SparkScript=scripts/soal_whatsapp_api_iceberg_write.py
+        - RoleName=soal_whatsapp_api_iceberg_write-role
+        - ImageUri=590183814935.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder:latest
+        - WorkloadType=whatsapp
+
+        # Optional (has a default in sam-template.yaml) - only listed here to override
+        # - BackupSuffix=-dr
+        - S3Bucket=whatsapp-api-media-prod
+        - IcebergTableLocation=s3://apache-iceberg-whatsapp-api-webook-prod
+        - SqsQueueUrl=https://sqs.eu-west-1.amazonaws.com/590183814935/webhook_whatsapp_api_write
+        - GlueDatabase=powerup-lakeformation
+        - IcebergTable=webhook_whatsapp_api_messages
+        - S3ImagePrefix=images/

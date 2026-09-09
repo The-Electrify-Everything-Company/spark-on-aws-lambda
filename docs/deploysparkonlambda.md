@@ -86,10 +86,24 @@ The following parameters are only assigned to the Lambda's environment when `Wor
 | `GlueDatabase`        | No                | `GLUE_DATABASE`          | `''`    |
 | `IcebergTable`        | No                | `ICEBERG_TABLE`          | `''`    |
 | `S3ImagePrefix`       | No                | `S3_IMAGE_PREFIX`        | `''`    |
-| `WhatsappAccessToken` | No                | `WHATSAPP_ACCESS_TOKEN`  | `''` (`NoEcho`) |
 
-`WhatsappAccessToken` is declared `NoEcho: True`, so CloudFormation masks it in the console/CLI/describe
-calls (it's still visible in plaintext in `samconfig.yaml`, so treat that file as containing a secret).
+The WhatsApp access token is **not** a CloudFormation parameter or Lambda env var. CloudFormation's
+`{{resolve:ssm-secure:...}}` dynamic reference — which would otherwise let CFN pull and decrypt an
+SSM `SecureString` automatically — isn't supported for Lambda `Environment.Variables`, so instead
+`soal_whatsapp_api_iceberg_write.py` fetches and decrypts the token itself at runtime (lazily, on
+first use, then cached for the life of the execution environment) from a fixed AWS Systems Manager
+Parameter Store `SecureString` named `/spark-on-lambda/whatsapp/access-token`, via the
+`ssm:GetParameter`/`kms:Decrypt` permissions granted in `whatsapp-policy.yaml`. Before the first
+`whatsapp-*` deploy in an account, seed the real value once:
+
+```
+aws ssm put-parameter --name /spark-on-lambda/whatsapp/access-token --type SecureString \
+  --value '<whatsapp-api-access-token>' --region eu-west-1
+```
+
+Run this once per account (non-prod and prod each have their own Parameter Store) and again
+whenever the token needs rotating — rotation takes effect on the next Lambda cold start, no stack
+redeploy required.
 
 ### IAM policy by workload
 
@@ -139,16 +153,8 @@ keys, as shown below — this merges them at YAML-parse time, before SAM CLI eve
 still satisfies the "every section must be fully specified" rule. `default: global: parameters` only
 applies on its own when running `sam deploy` with no `--config-env` at all.
 
-`samconfig.yaml` is not committed — it isn't tracked in git since it holds account-specific values like
-ECR repository URIs, S3 bucket names, and (for the WhatsApp config-envs) the plaintext
-`WhatsappAccessToken`. Each developer/deployment target maintains their own local copy; use the shape
-below as a template for creating one.
-
-> **Note:** `.gitignore` has a `samconfig.*` entry, so `samconfig.yaml` (as well as `samconfig.toml`) stays
-> untracked automatically — no need to add it yourself or double check before a broad `git add`.
-
-To change a value for an environment, edit its section in your local `samconfig.yaml` — there's no need to
-touch the template itself.
+`samconfig.yaml` is committed to the repository, at the root. To change a value for an environment,
+edit its section directly — there's no need to touch the template itself.
 
 ```yaml
 version: 0.1
@@ -231,7 +237,6 @@ whatsapp-non-prod:
         - GlueDatabase=powerup-lakeformation
         - IcebergTable=webhook_whatsapp_api_messages
         - S3ImagePrefix=images/
-        - WhatsappAccessToken=<whatsapp-api-access-token>
 ```
 
 The `lineage-prod` and `whatsapp-prod` sections follow the same shape as their non-prod counterparts, with
@@ -294,8 +299,8 @@ sam validate --template-file cloudformation/sam-template.yaml --lint
 per-workload nested-stack templates (`lineage-policy.yaml`, `whatsapp-policy.yaml`). A single
 `sam-template.yaml`, selected by `WorkloadType`, deploys all four stacks (lineage/WhatsApp ×
 non-prod/prod) — there are no per-environment or per-workload copies of the template. `samconfig.yaml`
-itself is gitignored and lives at the repository root, not inside `cloudformation/` (see "Per-environment
-configuration" above).
+itself lives at the repository root, not inside `cloudformation/` (see "Per-environment configuration"
+above).
 
 ## Building and publishing a new image / template version
 

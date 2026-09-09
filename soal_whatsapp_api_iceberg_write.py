@@ -20,6 +20,7 @@ aws_region = session.region_name
 # Initialize clients using the session
 s3_client = session.client('s3')
 sqs_client = session.client('sqs')
+ssm_client = session.client('ssm')
 
 # Define retry parameters for iceberg write
 WRITE_MAX_RETIRES = 5
@@ -27,13 +28,32 @@ BACKOFF_FACTOR = 2
 # Environment variables
 DATABASE_NAME = os.environ.get("GLUE_DATABASE")
 TABLE_NAME = os.environ.get("ICEBERG_TABLE")
-WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN')
 S3_BUCKET = os.environ.get('S3_BUCKET')
 S3_IMAGE_PREFIX = os.environ.get('S3_IMAGE_PREFIX')
-ICEBERG_TABLE_LOCATION = os.environ.get('ICEBERG_TABLE_LOCATION') 
+ICEBERG_TABLE_LOCATION = os.environ.get('ICEBERG_TABLE_LOCATION')
 QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
 
+# WhatsApp access token lives in SSM Parameter Store (SecureString), not an env var - fetched
+# lazily below so importing this module never makes a live AWS call.
+WHATSAPP_ACCESS_TOKEN_SSM_PARAMETER_NAME = '/spark-on-lambda/whatsapp/access-token'
+
 spark_session = None
+_whatsapp_access_token = None
+
+
+def get_whatsapp_access_token():
+    """Fetch and cache the WhatsApp access token from SSM Parameter Store on first use."""
+    global _whatsapp_access_token
+    if _whatsapp_access_token is None:
+        try:
+            response = ssm_client.get_parameter(
+                Name=WHATSAPP_ACCESS_TOKEN_SSM_PARAMETER_NAME,
+                WithDecryption=True
+            )
+            _whatsapp_access_token = response['Parameter']['Value']
+        except Exception as e:
+            logger.error(f"Failed to fetch WhatsApp access token from SSM parameter {WHATSAPP_ACCESS_TOKEN_SSM_PARAMETER_NAME}: {e}")
+    return _whatsapp_access_token
 
 
 # Define schema matching your table structure
@@ -184,14 +204,15 @@ def download_whatsapp_media(media_id):
     Download media from WhatsApp Business API
     """
     try:
-        if not WHATSAPP_ACCESS_TOKEN:
-            logger.error("WHATSAPP_ACCESS_TOKEN environment variable not set")
+        access_token = get_whatsapp_access_token()
+        if not access_token:
+            logger.error("WhatsApp access token not available")
             return None
 
         # Get media URL
         media_url = f"https://graph.facebook.com/v17.0/{media_id}"
         headers = {
-            'Authorization': f'Bearer {WHATSAPP_ACCESS_TOKEN}'
+            'Authorization': f'Bearer {access_token}'
         }
         
         logger.info(f"Fetching media URL for {media_id}")

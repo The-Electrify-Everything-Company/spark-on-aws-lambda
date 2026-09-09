@@ -141,11 +141,6 @@ Parameters:
     Description: 'Optional: S3 key prefix for WhatsApp media images (env var S3_IMAGE_PREFIX)'
     Type: String
     Default: ''
-  WhatsappAccessToken:
-    Description: 'Optional: WhatsApp API access token (env var WHATSAPP_ACCESS_TOKEN)'
-    Type: String
-    NoEcho: True
-    Default: ''
 
 Conditions:
   NeedsVPC:  !Equals [ !Ref AttachToVpc, 'True' ]
@@ -258,6 +253,5 @@ Resources:
           ICEBERG_TABLE: !If [ IsWhatsapp, !Ref IcebergTable, !Ref "AWS::NoValue" ]
           S3_BUCKET: !If [ IsWhatsapp, !Sub '${S3Bucket}${BackupSuffix}', !Ref "AWS::NoValue" ]
           S3_IMAGE_PREFIX: !If [ IsWhatsapp, !Ref S3ImagePrefix, !Ref "AWS::NoValue" ]
-          WHATSAPP_ACCESS_TOKEN: !If [ IsWhatsapp, !Ref WhatsappAccessToken, !Ref "AWS::NoValue" ]
           ICEBERG_TABLE_LOCATION: !If [ IsWhatsapp, !Sub '${IcebergTableLocation}${BackupSuffix}', !Ref "AWS::NoValue" ]
           SQS_QUEUE_URL: !If [ IsWhatsapp, !Ref SqsQueueUrl, !Ref "AWS::NoValue" ]
