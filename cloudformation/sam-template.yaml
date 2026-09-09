@@ -246,20 +246,18 @@ Resources:
           SPARK_SCRIPT: !Ref SparkScript
           #INPUT_PATH: !Ref InputPath
           #OUTPUT_PATH: !Ref OutputPath
-          CR_TABLE_NAME: !Ref CrTableName
-          DATABASE_NAME: !Ref DatabaseName
-          ICB_WG: !Ref IcbWorkgroup
           LAMBDA_VERSION: !Ref LambdaVersion
-          RC_TABLE_NAME: !Ref RcTableName
-          WAREHOUSE_BUCKET: !Sub ${WarehouseBucket}${BackupSuffix}
-          LINEAGE_VERIFY_TABLE: !Ref LineageVerifyTable
-          GLUE_DATABASE: !Ref GlueDatabase
-          ICEBERG_TABLE: !Ref IcebergTable
-          S3_BUCKET: !Sub ${S3Bucket}${BackupSuffix}
-          S3_IMAGE_PREFIX: !Ref S3ImagePrefix
-          WHATSAPP_ACCESS_TOKEN: !Ref WhatsappAccessToken
-          ICEBERG_TABLE_LOCATION: !Sub ${IcebergTableLocation}${BackupSuffix}
-          SQS_QUEUE_URL: !Ref SqsQueueUrl
           Rebuild: !Ref BuildTrigger
-
-
+          CR_TABLE_NAME: !If [ IsLineage, !Ref CrTableName, !Ref "AWS::NoValue" ]
+          DATABASE_NAME: !If [ IsLineage, !Ref DatabaseName, !Ref "AWS::NoValue" ]
+          ICB_WG: !If [ IsLineage, !Ref IcbWorkgroup, !Ref "AWS::NoValue" ]
+          RC_TABLE_NAME: !If [ IsLineage, !Ref RcTableName, !Ref "AWS::NoValue" ]
+          WAREHOUSE_BUCKET: !If [ IsLineage, !Sub '${WarehouseBucket}${BackupSuffix}', !Ref "AWS::NoValue" ]
+          LINEAGE_VERIFY_TABLE: !If [ IsLineage, !Ref LineageVerifyTable, !Ref "AWS::NoValue" ]
+          GLUE_DATABASE: !If [ IsWhatsapp, !Ref GlueDatabase, !Ref "AWS::NoValue" ]
+          ICEBERG_TABLE: !If [ IsWhatsapp, !Ref IcebergTable, !Ref "AWS::NoValue" ]
+          S3_BUCKET: !If [ IsWhatsapp, !Sub '${S3Bucket}${BackupSuffix}', !Ref "AWS::NoValue" ]
+          S3_IMAGE_PREFIX: !If [ IsWhatsapp, !Ref S3ImagePrefix, !Ref "AWS::NoValue" ]
+          WHATSAPP_ACCESS_TOKEN: !If [ IsWhatsapp, !Ref WhatsappAccessToken, !Ref "AWS::NoValue" ]
+          ICEBERG_TABLE_LOCATION: !If [ IsWhatsapp, !Sub '${IcebergTableLocation}${BackupSuffix}', !Ref "AWS::NoValue" ]
+          SQS_QUEUE_URL: !If [ IsWhatsapp, !Ref SqsQueueUrl, !Ref "AWS::NoValue" ]
