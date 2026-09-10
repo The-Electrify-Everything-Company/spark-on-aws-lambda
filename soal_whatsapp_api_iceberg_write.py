@@ -108,7 +108,6 @@ def create_iceberg_spark_session():
         .config("spark.sql.catalog.glue_catalog.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog") \
         .config("spark.sql.catalog.glue_catalog.warehouse", ICEBERG_TABLE_LOCATION ) \
         .config("spark.sql.defaultCatalog", "glue_catalog" ) \
-        .config("spark.jars.packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.iceberg:iceberg-aws-bundle:1.4.2") \
         .config("spark.sql.catalog.glue_catalog.glue.skip-name-validation", True) \
         .config("spark.hadoop.fs.s3a.aws.credentials.provider","org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider") \
         .config("spark.sql.catalog.glue_catalog.lock-impl","org.apache.iceberg.aws.dynamodb.DynamoDbLockManager") \
@@ -198,8 +197,7 @@ def write_to_iceberg(records: list, spark):
         return  # Exit the function on success
 
     except Exception as e:
-        error_message = str(e)
-        logger.error(f"There was an error write to Iceberg: {error_message}")
+        logger.error(f"There was an error writing to Iceberg: {type(e).__name__}: {e}", exc_info=True)
         raise
 
 
@@ -664,18 +662,25 @@ def main(event):
             # Process the event with Spark
             result = handle_message_event(payload, spark)
             logger.info(f"Processed event: {result}")
-            # Delete the message from the queue using the receipt handle
-            if QUEUE_URL:
-                try:
-                    sqs_client.delete_message(
-                        QueueUrl=QUEUE_URL,
-                        ReceiptHandle=receipt_handle
-                    )
-                    logger.info(f"Successfully deleted message from SQS queue")
-                except Exception as e:
-                    logger.error(f"Failed to delete message from SQS: {str(e)}")
+            # Only delete the message from the queue if it was actually processed
+            # successfully, so a failed write is retried/DLQ'd by SQS instead of lost.
+            if result.get("statusCode") == 200:
+                if QUEUE_URL:
+                    try:
+                        sqs_client.delete_message(
+                            QueueUrl=QUEUE_URL,
+                            ReceiptHandle=receipt_handle
+                        )
+                        logger.info(f"Successfully deleted message from SQS queue")
+                    except Exception as e:
+                        logger.error(f"Failed to delete message from SQS: {str(e)}")
+                else:
+                    logger.warning("QUEUE_URL not set, skipping SQS message deletion")
             else:
-                logger.warning("QUEUE_URL not set, skipping SQS message deletion")
+                logger.error(
+                    f"Not deleting SQS message {receipt_handle}; handler returned "
+                    f"statusCode={result.get('statusCode')}"
+                )
         elapsed_time = time.time()- start_time
         logger.info(f"Total processing time: {elapsed_time} seconds")
         # Stop Spark session after processing all records
