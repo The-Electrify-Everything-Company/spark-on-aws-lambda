@@ -106,7 +106,7 @@ whatsapp-prod:
         - WorkloadType=whatsapp
 
         # Optional (has a default in sam-template.yaml) - only listed here to override
-        #- BuildTrigger=v1
+        #- BuildTrigger=v2
         # - BackupSuffix=-dr
         - S3Bucket=whatsapp-api-media-prod
         - IcebergTableLocation=s3://apache-iceberg-whatsapp-api-webook-prod
