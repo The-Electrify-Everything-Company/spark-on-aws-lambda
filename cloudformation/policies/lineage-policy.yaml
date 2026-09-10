@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM policy granting the SOAL lineage workload Lambda role the permissions it needs
+  (ECR pull, S3, DynamoDB, Lambda invoke, SQS, Athena, Glue, LakeFormation). Nested
+  stack referenced by sam-template.yaml when WorkloadType=lineage.
+
+Parameters:
+  ParentStackName:
+    Description: 'Mandatory: Name of the parent SOAL stack, used to name the policy'
+    Type: String
+  RoleName:
+    Description: 'Mandatory: Name of the Lambda execution role to attach this policy to'
+    Type: String
+  ImageUri:
+    Description: 'Mandatory: ECR Uri for the image, used to scope the ECR pull permissions'
+    Type: String
+
+Resources:
+  LambdaPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: !Sub 'SparkOnLmandaDefaulPolicy-${ParentStackName}'
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+            Resource:
+              Fn::Sub:
+                - "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}"
+                - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - dynamodb:PutItem
+              - dynamodb:GetItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:BatchGetItem
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+              - lambda:InvokeAsync
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:SendMessage
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - athena:StartQueryExecution
+              - athena:GetQueryExecution
+              - athena:GetQueryResults
+              - athena:GetTableMetadata
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:PutObject
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - glue:GetDatabase
+              - glue:GetDatabases
+              - glue:GetTable
+              - glue:GetPartitions
+              - glue:UpdateTable
+              - glue:CreateTable
+              - glue:BatchCreatePartition
+              - glue:BatchDeletePartition
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - lakeformation:GetDataAccess
+            Resource: '*'
+      Roles:
+        - !Ref RoleName

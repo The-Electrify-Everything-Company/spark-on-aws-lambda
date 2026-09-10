@@ -1,7 +1,7 @@
 import json
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
@@ -251,6 +251,34 @@ class HandleSpokiImageMessageTests(unittest.TestCase):
         updates = soal.handle_spoki_image_message(data, "msg2", "+256709079019")
 
         self.assertEqual(updates["text_content"], "Here is my payment proof")
+
+
+class DownloadWhatsappMediaTests(unittest.TestCase):
+    @patch("soal_whatsapp_api_iceberg_write.urllib.request.urlopen")
+    @patch("soal_whatsapp_api_iceberg_write.get_whatsapp_access_token")
+    def test_downloads_media_with_bearer_token(self, mock_get_token, mock_urlopen):
+        mock_get_token.return_value = "fake-token"
+
+        media_response = MagicMock()
+        media_response.read.return_value = json.dumps({"url": "https://example.com/media.jpg"}).encode()
+        download_response = MagicMock()
+        download_response.read.return_value = b"fake-image-bytes"
+        mock_urlopen.side_effect = [media_response, download_response]
+
+        result = soal.download_whatsapp_media("media123")
+
+        self.assertEqual(result, b"fake-image-bytes")
+        mock_get_token.assert_called_once()
+        first_request = mock_urlopen.call_args_list[0].args[0]
+        self.assertEqual(first_request.get_header("Authorization"), "Bearer fake-token")
+
+    @patch("soal_whatsapp_api_iceberg_write.get_whatsapp_access_token")
+    def test_returns_none_when_token_unavailable(self, mock_get_token):
+        mock_get_token.return_value = None
+
+        result = soal.download_whatsapp_media("media123")
+
+        self.assertIsNone(result)
 
 
 class HandleMessageEventDispatchTests(unittest.TestCase):
