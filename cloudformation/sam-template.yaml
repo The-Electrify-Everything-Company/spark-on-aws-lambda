@@ -129,6 +129,18 @@ Parameters:
     Description: 'Optional: SQS queue URL the Lambda consumes from (env var SQS_QUEUE_URL)'
     Type: String
     Default: ''
+  SqsQueueArn:
+    Description: 'Optional: ARN of the SQS queue that triggers the Lambda (used to create the event source mapping for whatsapp)'
+    Type: String
+    Default: ''
+  SqsBatchSize:
+    Description: 'Optional: Max number of SQS messages delivered to the Lambda per invocation (whatsapp event source mapping)'
+    Type: Number
+    Default: 10
+  SqsMaxBatchingWindowSeconds:
+    Description: 'Optional: Max seconds to wait to gather a full batch before invoking the Lambda (whatsapp event source mapping)'
+    Type: Number
+    Default: 10
   GlueDatabase:
     Description: 'Optional: Glue database name (env var GLUE_DATABASE)'
     Type: String
@@ -262,3 +274,13 @@ Resources:
           S3_IMAGE_PREFIX: !If [ IsWhatsapp, !Ref S3ImagePrefix, !Ref "AWS::NoValue" ]
           ICEBERG_TABLE_LOCATION: !If [ IsWhatsapp, !Sub '${IcebergTableLocation}${BackupSuffix}', !Ref "AWS::NoValue" ]
           SQS_QUEUE_URL: !If [ IsWhatsapp, !Ref SqsQueueUrl, !Ref "AWS::NoValue" ]
+
+  WhatsappEventSourceMapping:
+    Type: 'AWS::Lambda::EventSourceMapping'
+    Condition: IsWhatsapp
+    Properties:
+      EventSourceArn: !Ref SqsQueueArn
+      FunctionName: !Ref SparkLambda
+      BatchSize: !Ref SqsBatchSize
+      MaximumBatchingWindowInSeconds: !Ref SqsMaxBatchingWindowSeconds
+      Enabled: true

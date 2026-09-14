@@ -316,5 +316,71 @@ class HandleMessageEventDispatchTests(unittest.TestCase):
         self.assertEqual(result["statusCode"], 500)
 
 
+def sqs_event(*payloads):
+    return {
+        "Records": [
+            {"body": json.dumps(payload), "receiptHandle": f"rh-{i}"}
+            for i, payload in enumerate(payloads)
+        ]
+    }
+
+
+class MainBatchingTests(unittest.TestCase):
+    def setUp(self):
+        get_spark_patcher = patch("soal_whatsapp_api_iceberg_write.get_spark", return_value=MagicMock())
+        write_patcher = patch("soal_whatsapp_api_iceberg_write.write_to_iceberg")
+        delete_patcher = patch.object(soal.sqs_client, "delete_message")
+        queue_url_patcher = patch("soal_whatsapp_api_iceberg_write.QUEUE_URL", "https://queue.example/q")
+
+        self.mock_get_spark = get_spark_patcher.start()
+        self.mock_write = write_patcher.start()
+        self.mock_delete = delete_patcher.start()
+        queue_url_patcher.start()
+
+        self.addCleanup(get_spark_patcher.stop)
+        self.addCleanup(write_patcher.stop)
+        self.addCleanup(delete_patcher.stop)
+        self.addCleanup(queue_url_patcher.stop)
+
+    def test_multiple_messages_batched_into_single_write(self):
+        event = sqs_event(META_TEXT_PAYLOAD, SPOKI_TEXT_PAYLOAD)
+
+        soal.main(event)
+
+        self.mock_write.assert_called_once()
+        written_records, _ = self.mock_write.call_args[0]
+        self.assertEqual(len(written_records), 2)
+        self.assertEqual(self.mock_delete.call_count, 2)
+        deleted_handles = {call.kwargs["ReceiptHandle"] for call in self.mock_delete.call_args_list}
+        self.assertEqual(deleted_handles, {"rh-0", "rh-1"})
+
+    def test_message_with_no_records_deleted_without_write(self):
+        event = sqs_event({"foo": "bar"})
+
+        soal.main(event)
+
+        self.mock_write.assert_not_called()
+        self.mock_delete.assert_called_once_with(
+            QueueUrl="https://queue.example/q", ReceiptHandle="rh-0"
+        )
+
+    def test_failed_batch_write_leaves_messages_undeleted(self):
+        self.mock_write.side_effect = RuntimeError("commit failed")
+        event = sqs_event(META_TEXT_PAYLOAD, SPOKI_TEXT_PAYLOAD)
+
+        soal.main(event)
+
+        self.mock_write.assert_called_once()
+        self.mock_delete.assert_not_called()
+
+    def test_unparseable_message_left_on_queue(self):
+        event = {"Records": [{"body": "not-json", "receiptHandle": "rh-0"}]}
+
+        soal.main(event)
+
+        self.mock_write.assert_not_called()
+        self.mock_delete.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

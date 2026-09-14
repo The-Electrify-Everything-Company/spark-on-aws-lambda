@@ -645,56 +645,94 @@ def handle_message_event(payload, spark):
         }
 
 
+def _delete_sqs_message(receipt_handle):
+    """
+    Deletes a single message from the SQS queue. No-ops (with a warning) if
+    QUEUE_URL isn't configured; logs and swallows delete failures so one bad
+    delete doesn't derail the rest of the batch.
+    """
+    if not QUEUE_URL:
+        logger.warning("QUEUE_URL not set, skipping SQS message deletion")
+        return
+    try:
+        sqs_client.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=receipt_handle)
+        logger.info("Successfully deleted message from SQS queue")
+    except Exception as e:
+        logger.error(f"Failed to delete message from SQS: {str(e)}")
+
+
 def main(event):
     try:
         logger.info(f"Event: {event}")
         start_time = time.time()
+
+        # Create Spark session once for the whole batch
+        spark = get_spark()
+        logger.info(f"Spark Session created")
+
+        records_to_write = []       # combined rows for a single batched Iceberg write
+        handles_pending_write = []  # receipt handles whose records are in records_to_write
+        handles_to_delete_now = []  # messages with nothing to write - safe to delete immediately
+
         # Extracting the WhatsApp Message Payload from SQS
         # SQS event has Records array with each record having body
         for record in event['Records']:
-            payload = json.loads(record['body'])
             receipt_handle = record['receiptHandle']
-            
-            # Create Spark session
-            spark = get_spark()
-            logger.info(f"Spark Session created")
-            
-            # Process the event with Spark
-            result = handle_message_event(payload, spark)
-            logger.info(f"Processed event: {result}")
-            # Only delete the message from the queue if it was actually processed
-            # successfully, so a failed write is retried/DLQ'd by SQS instead of lost.
-            if result.get("statusCode") == 200:
-                if QUEUE_URL:
-                    try:
-                        sqs_client.delete_message(
-                            QueueUrl=QUEUE_URL,
-                            ReceiptHandle=receipt_handle
-                        )
-                        logger.info(f"Successfully deleted message from SQS queue")
-                    except Exception as e:
-                        logger.error(f"Failed to delete message from SQS: {str(e)}")
+            try:
+                payload = json.loads(record['body'])
+                vendor = detect_vendor(payload)
+                if vendor == 'meta':
+                    parsed = build_meta_records(payload)
+                elif vendor == 'spoki':
+                    parsed = build_spoki_records(payload)
                 else:
-                    logger.warning("QUEUE_URL not set, skipping SQS message deletion")
+                    logger.warning(
+                        f"Unrecognized webhook payload shape, skipping. Top-level keys: "
+                        f"{list(payload.keys()) if isinstance(payload, dict) else type(payload)}"
+                    )
+                    parsed = []
+            except Exception as e:
+                # Leave the message on the queue rather than deleting an unparseable one
+                logger.error(f"Error parsing SQS message body: {e}", exc_info=True)
+                continue
+
+            if parsed:
+                records_to_write.extend(parsed)
+                handles_pending_write.append(receipt_handle)
             else:
+                handles_to_delete_now.append(receipt_handle)
+
+        for rh in handles_to_delete_now:
+            _delete_sqs_message(rh)
+
+        if records_to_write:
+            try:
+                write_to_iceberg(records_to_write, spark)
+                for rh in handles_pending_write:
+                    _delete_sqs_message(rh)
+            except Exception:
+                # Leave every pending message on the queue so the whole batch is
+                # retried/DLQ'd instead of losing records from a failed commit.
                 logger.error(
-                    f"Not deleting SQS message {receipt_handle}; handler returned "
-                    f"statusCode={result.get('statusCode')}"
+                    f"Batch Iceberg write failed; leaving {len(handles_pending_write)} "
+                    f"message(s) on the queue for retry",
+                    exc_info=True
                 )
+
         elapsed_time = time.time()- start_time
         logger.info(f"Total processing time: {elapsed_time} seconds")
         # Stop Spark session after processing all records
         spark.stop()
-        
-        
+
+
         return {
             "statusCode": 200,
             "body": json.dumps({"message": "Processing completed successfully"})
         }
-        
+
     except Exception as e:
         logger.error(f"Error processing log event: {str(e)}", exc_info=True)
-        
+
         # Ensure Spark session is stopped even on error
         try:
             if spark_session:

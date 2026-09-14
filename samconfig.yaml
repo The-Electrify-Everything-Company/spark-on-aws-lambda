@@ -61,6 +61,9 @@ whatsapp-non-prod:
         - S3Bucket=whatsapp-api-media
         - IcebergTableLocation=s3://apache-iceberg-whatsapp-api-webook
         - SqsQueueUrl=https://sqs.eu-west-1.amazonaws.com/533267385393/webhook_whatsapp_api_write
+        - SqsQueueArn=arn:aws:sqs:eu-west-1:533267385393:webhook_whatsapp_api_write
+        - SqsBatchSize=10
+        - SqsMaxBatchingWindowSeconds=10
         - GlueDatabase=powerup-lakeformation
         - IcebergTable=webhook_whatsapp_api_messages
         - S3ImagePrefix=images/
@@ -111,6 +114,9 @@ whatsapp-prod:
         - S3Bucket=whatsapp-api-media-prod
         - IcebergTableLocation=s3://apache-iceberg-whatsapp-api-webook-prod
         - SqsQueueUrl=https://sqs.eu-west-1.amazonaws.com/590183814935/webhook_whatsapp_api_write
+        - SqsQueueArn=arn:aws:sqs:eu-west-1:590183814935:webhook_whatsapp_api_write
+        - SqsBatchSize=10
+        - SqsMaxBatchingWindowSeconds=10
         - GlueDatabase=powerup-lakeformation
         - IcebergTable=webhook_whatsapp_api_messages
         - S3ImagePrefix=images/
