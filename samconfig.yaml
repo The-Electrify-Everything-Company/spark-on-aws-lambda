@@ -38,7 +38,8 @@ lineage-non-prod:
         - IcbWorkgroup=iceberg-workgroup
         - RcTableName=iceberg_records
         - LineageVerifyTable=lineage_verify
-       
+        - SqsQueueArn=arn:aws:sqs:eu-west-1:533267385393:lineage-write-queue
+
 
 whatsapp-non-prod:
   deploy:
@@ -91,7 +92,7 @@ lineage-prod:
         - IcbWorkgroup=iceberg-workgroup
         - RcTableName=iceberg_records
         - LineageVerifyTable=lineage_verify
-        
+        - SqsQueueArn=arn:aws:sqs:eu-west-1:590183814935:lineage-write-queue
 
 whatsapp-prod:
   deploy:

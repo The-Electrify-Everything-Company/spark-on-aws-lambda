@@ -130,7 +130,7 @@ Parameters:
     Type: String
     Default: ''
   SqsQueueArn:
-    Description: 'Optional: ARN of the SQS queue that triggers the Lambda (used to create the event source mapping for whatsapp)'
+    Description: 'Optional: ARN of the SQS queue that triggers the Lambda (used to create the event source mapping for whatsapp, and to scope the lineage policy''s SQS permissions)'
     Type: String
     Default: ''
   SqsBatchSize:
@@ -173,10 +173,6 @@ Resources:
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
         - !If
-            - IsLineage
-            - "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
-            - !Ref "AWS::NoValue"
-        - !If
             - "HasAdditionalPolicy"
             - !Ref SparkLambdapermissionPolicyArn
             - !Ref "AWS::NoValue"
@@ -202,6 +198,15 @@ Resources:
         ParentStackName: !Ref AWS::StackName
         RoleName: !Ref LambdaRole
         ImageUri: !Ref ImageUri
+        ScriptBucket: !Ref ScriptBucket
+        WarehouseBucket: !Ref WarehouseBucket
+        DatabaseName: !Ref DatabaseName
+        CrTableName: !Ref CrTableName
+        RcTableName: !Ref RcTableName
+        IcbWorkgroup: !Ref IcbWorkgroup
+        LineageVerifyTable: !Ref LineageVerifyTable
+        SqsQueueArn: !Ref SqsQueueArn
+        BackupSuffix: !Ref BackupSuffix
 
   WhatsappPolicyStack:
     Type: 'AWS::CloudFormation::Stack'

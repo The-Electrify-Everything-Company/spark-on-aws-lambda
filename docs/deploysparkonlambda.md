@@ -116,20 +116,22 @@ workload means adding one `cloudformation/policies/<workload>-policy.yaml` file 
 resource, not another inline policy block in `sam-template.yaml`'s `Resources:` section.
 
 - **`lineage`** (`Condition: IsLineage`): `LineagePolicyStack` nested stack
-  (`cloudformation/policies/lineage-policy.yaml`). `LambdaRole` gets the `AmazonDynamoDBFullAccess`
-  managed policy plus this nested stack's policy (ECR pull, S3, scoped DynamoDB item actions, Lambda
-  invoke, SQS, Athena, Glue, LakeFormation).
+  (`cloudformation/policies/lineage-policy.yaml`). `LambdaRole` no longer gets the
+  `AmazonDynamoDBFullAccess` managed policy — all lineage permissions (ECR pull, S3, DynamoDB, SQS,
+  Athena, Glue, LakeFormation) come from this nested stack's policy, scoped to the specific buckets,
+  tables, workgroup, and queue the workload uses.
 - **`whatsapp`** (`Condition: IsWhatsapp`): `WhatsappPolicyStack` nested stack
   (`cloudformation/policies/whatsapp-policy.yaml`). `LambdaRole` does *not* get
   `AmazonDynamoDBFullAccess`; instead it gets this nested stack's policy, which covers the same
-  ECR/S3/Lambda-invoke/SQS/Glue/LakeFormation actions but with a wider set of scoped DynamoDB actions
-  (including `CreateTable`/`DescribeTable`/`Query`/`Scan`) instead of the managed policy, and no
-  Athena access (Athena isn't needed for this workload).
+  ECR/S3/SQS/Glue/LakeFormation actions but with a wider set of scoped DynamoDB actions (including
+  `CreateTable`/`DescribeTable`) instead of the managed policy, plus SSM/KMS for the WhatsApp access
+  token, and no Athena access (Athena isn't needed for this workload).
 
-Both policies use `Resource: '*'` throughout (aside from the ECR statement, which is scoped to the
-repository parsed out of `ImageUri`) — `WorkloadType` changes *which* policy is attached, not how tightly
-scoped either one is. Each nested stack takes `ParentStackName`, `RoleName`, and `ImageUri` as parameters
-(passed from `sam-template.yaml`) to name the policy and scope the ECR statement.
+Both policies scope every statement to the specific resource(s) the workload touches (aside from
+`ecr:GetAuthorizationToken` and `lakeformation:GetDataAccess`, which AWS doesn't support scoping to a
+resource ARN). Each nested stack takes `ParentStackName`, `RoleName`, and `ImageUri` as parameters
+(passed from `sam-template.yaml`) to name the policy and scope the ECR statement, plus workload-specific
+parameters (bucket names, table names, workgroup, queue ARN, etc.) to scope the rest.
 
 `samconfig.yaml`'s `resolve_s3: true` (set for every config-env) means SAM CLI auto-uploads these local
 nested-stack template files during `sam deploy`/`sam package`, the same way it handles the container

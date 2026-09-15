@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   IAM policy granting the SOAL lineage workload Lambda role the permissions it needs
-  (ECR pull, S3, DynamoDB, Lambda invoke, SQS, Athena, Glue, LakeFormation). Nested
-  stack referenced by sam-template.yaml when WorkloadType=lineage.
+  (ECR pull, S3, DynamoDB, SQS, Athena, Glue, LakeFormation), scoped to the specific
+  resources the workload touches. Nested stack referenced by sam-template.yaml when
+  WorkloadType=lineage.
 
 Parameters:
   ParentStackName:
@@ -14,6 +15,33 @@ Parameters:
   ImageUri:
     Description: 'Mandatory: ECR Uri for the image, used to scope the ECR pull permissions'
     Type: String
+  ScriptBucket:
+    Description: 'Mandatory: S3 bucket the spark script is downloaded from (env var SCRIPT_BUCKET, before BackupSuffix)'
+    Type: String
+  WarehouseBucket:
+    Description: 'Mandatory: S3 URI for the Iceberg warehouse bucket (env var WAREHOUSE_BUCKET, before BackupSuffix)'
+    Type: String
+  DatabaseName:
+    Description: 'Mandatory: Glue database name (env var DATABASE_NAME)'
+    Type: String
+  CrTableName:
+    Description: 'Mandatory: Curated Iceberg table name (env var CR_TABLE_NAME)'
+    Type: String
+  RcTableName:
+    Description: 'Mandatory: Records Iceberg table name (env var RC_TABLE_NAME)'
+    Type: String
+  IcbWorkgroup:
+    Description: 'Mandatory: Athena workgroup used for lineage queries (env var ICB_WG)'
+    Type: String
+  LineageVerifyTable:
+    Description: 'Mandatory: DynamoDB table used to track lineage verification (env var LINEAGE_VERIFY_TABLE)'
+    Type: String
+  SqsQueueArn:
+    Description: 'Mandatory: ARN of the SQS queue the lineage Lambda consumes from'
+    Type: String
+  BackupSuffix:
+    Type: String
+    Default: ''
 
 Resources:
   LambdaPolicy:
@@ -22,11 +50,13 @@ Resources:
       PolicyName: !Sub 'SparkOnLmandaDefaulPolicy-${ParentStackName}'
       PolicyDocument:
         Statement:
-          - Effect: Allow
+          - Sid: EcrGetAuthorizationToken
+            Effect: Allow
             Action:
               - ecr:GetAuthorizationToken
             Resource: '*'
-          - Effect: Allow
+          - Sid: EcrPullImage
+            Effect: Allow
             Action:
               - ecr:BatchCheckLayerAvailability
               - ecr:GetDownloadUrlForLayer
@@ -35,14 +65,50 @@ Resources:
               Fn::Sub:
                 - "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}"
                 - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
-          - Effect: Allow
+          - Sid: ScriptBucketRead
+            Effect: Allow
             Action:
-              - s3:ListBucket
+              - s3:GetObject
+            Resource:
+              Fn::Sub: 'arn:aws:s3:::${ScriptBucket}${BackupSuffix}/*'
+          - Sid: IcebergWarehouseBucketAccess
+            Effect: Allow
+            Action:
               - s3:GetObject
               - s3:PutObject
               - s3:DeleteObject
-            Resource: '*'
-          - Effect: Allow
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource:
+              - Fn::Sub:
+                  - 'arn:aws:s3:::${BucketName}'
+                  - BucketName: !Select [0, !Split ["/", !Select [1, !Split ["s3://", !Sub '${WarehouseBucket}${BackupSuffix}']]]]
+              - Fn::Sub:
+                  - 'arn:aws:s3:::${BucketName}/*'
+                  - BucketName: !Select [0, !Split ["/", !Select [1, !Split ["s3://", !Sub '${WarehouseBucket}${BackupSuffix}']]]]
+          - Sid: LineageQueueAccess
+            Effect: Allow
+            Action:
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+            Resource: !Ref SqsQueueArn
+          - Sid: IcebergLockTable
+            Effect: Allow
+            Action:
+              - dynamodb:CreateTable
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+            Resource:
+              # Table name is hardcoded in loglineage.py's
+              # spark.sql.catalog.glue_catalog.lock.table config - keep in sync.
+              Fn::Sub: 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/iceberg_lock_table'
+          - Sid: LineageVerifyTableAccess
+            Effect: Allow
             Action:
               - dynamodb:PutItem
               - dynamodb:GetItem
@@ -50,35 +116,12 @@ Resources:
               - dynamodb:DeleteItem
               - dynamodb:BatchWriteItem
               - dynamodb:BatchGetItem
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - lambda:InvokeFunction
-              - lambda:InvokeAsync
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - sqs:ReceiveMessage
-              - sqs:DeleteMessage
-              - sqs:GetQueueAttributes
-              - sqs:GetQueueUrl
-              - sqs:SendMessage
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - athena:StartQueryExecution
-              - athena:GetQueryExecution
-              - athena:GetQueryResults
-              - athena:GetTableMetadata
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:GetObject
-              - s3:ListBucket
-              - s3:PutObject
-            Resource: '*'
-          - Effect: Allow
+              - dynamodb:Query
+            Resource:
+              - Fn::Sub: 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${LineageVerifyTable}'
+              - Fn::Sub: 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${LineageVerifyTable}/index/*'
+          - Sid: LineageGlueCatalogAccess
+            Effect: Allow
             Action:
               - glue:GetDatabase
               - glue:GetDatabases
@@ -88,10 +131,26 @@ Resources:
               - glue:CreateTable
               - glue:BatchCreatePartition
               - glue:BatchDeletePartition
-            Resource: '*'
-          - Effect: Allow
+            Resource:
+              - Fn::Sub: 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog'
+              - Fn::Sub: 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${DatabaseName}'
+              - Fn::Sub: 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${DatabaseName}/${CrTableName}'
+              - Fn::Sub: 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${DatabaseName}/${RcTableName}'
+          - Sid: LineageAthenaWorkgroupAccess
+            Effect: Allow
+            Action:
+              - athena:StartQueryExecution
+              - athena:GetQueryExecution
+              - athena:GetQueryResults
+              - athena:GetTableMetadata
+            Resource:
+              Fn::Sub: 'arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${IcbWorkgroup}'
+          - Sid: LakeFormationDataAccess
+            Effect: Allow
             Action:
               - lakeformation:GetDataAccess
+            # Lake Formation permissions are not resource-scopable via IAM ARNs;
+            # access control is enforced separately through LF grants.
             Resource: '*'
       Roles:
         - !Ref RoleName
