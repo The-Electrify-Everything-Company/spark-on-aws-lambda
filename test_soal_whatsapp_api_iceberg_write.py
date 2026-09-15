@@ -1,7 +1,7 @@
 import json
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
@@ -253,6 +253,34 @@ class HandleSpokiImageMessageTests(unittest.TestCase):
         self.assertEqual(updates["text_content"], "Here is my payment proof")
 
 
+class DownloadWhatsappMediaTests(unittest.TestCase):
+    @patch("soal_whatsapp_api_iceberg_write.urllib.request.urlopen")
+    @patch("soal_whatsapp_api_iceberg_write.get_whatsapp_access_token")
+    def test_downloads_media_with_bearer_token(self, mock_get_token, mock_urlopen):
+        mock_get_token.return_value = "fake-token"
+
+        media_response = MagicMock()
+        media_response.read.return_value = json.dumps({"url": "https://example.com/media.jpg"}).encode()
+        download_response = MagicMock()
+        download_response.read.return_value = b"fake-image-bytes"
+        mock_urlopen.side_effect = [media_response, download_response]
+
+        result = soal.download_whatsapp_media("media123")
+
+        self.assertEqual(result, b"fake-image-bytes")
+        mock_get_token.assert_called_once()
+        first_request = mock_urlopen.call_args_list[0].args[0]
+        self.assertEqual(first_request.get_header("Authorization"), "Bearer fake-token")
+
+    @patch("soal_whatsapp_api_iceberg_write.get_whatsapp_access_token")
+    def test_returns_none_when_token_unavailable(self, mock_get_token):
+        mock_get_token.return_value = None
+
+        result = soal.download_whatsapp_media("media123")
+
+        self.assertIsNone(result)
+
+
 class HandleMessageEventDispatchTests(unittest.TestCase):
     @patch("soal_whatsapp_api_iceberg_write.write_to_iceberg")
     def test_routes_meta_payload(self, mock_write):
@@ -286,6 +314,72 @@ class HandleMessageEventDispatchTests(unittest.TestCase):
         result = soal.handle_message_event(META_TEXT_PAYLOAD, spark=None)
 
         self.assertEqual(result["statusCode"], 500)
+
+
+def sqs_event(*payloads):
+    return {
+        "Records": [
+            {"body": json.dumps(payload), "receiptHandle": f"rh-{i}"}
+            for i, payload in enumerate(payloads)
+        ]
+    }
+
+
+class MainBatchingTests(unittest.TestCase):
+    def setUp(self):
+        get_spark_patcher = patch("soal_whatsapp_api_iceberg_write.get_spark", return_value=MagicMock())
+        write_patcher = patch("soal_whatsapp_api_iceberg_write.write_to_iceberg")
+        delete_patcher = patch.object(soal.sqs_client, "delete_message")
+        queue_url_patcher = patch("soal_whatsapp_api_iceberg_write.QUEUE_URL", "https://queue.example/q")
+
+        self.mock_get_spark = get_spark_patcher.start()
+        self.mock_write = write_patcher.start()
+        self.mock_delete = delete_patcher.start()
+        queue_url_patcher.start()
+
+        self.addCleanup(get_spark_patcher.stop)
+        self.addCleanup(write_patcher.stop)
+        self.addCleanup(delete_patcher.stop)
+        self.addCleanup(queue_url_patcher.stop)
+
+    def test_multiple_messages_batched_into_single_write(self):
+        event = sqs_event(META_TEXT_PAYLOAD, SPOKI_TEXT_PAYLOAD)
+
+        soal.main(event)
+
+        self.mock_write.assert_called_once()
+        written_records, _ = self.mock_write.call_args[0]
+        self.assertEqual(len(written_records), 2)
+        self.assertEqual(self.mock_delete.call_count, 2)
+        deleted_handles = {call.kwargs["ReceiptHandle"] for call in self.mock_delete.call_args_list}
+        self.assertEqual(deleted_handles, {"rh-0", "rh-1"})
+
+    def test_message_with_no_records_deleted_without_write(self):
+        event = sqs_event({"foo": "bar"})
+
+        soal.main(event)
+
+        self.mock_write.assert_not_called()
+        self.mock_delete.assert_called_once_with(
+            QueueUrl="https://queue.example/q", ReceiptHandle="rh-0"
+        )
+
+    def test_failed_batch_write_leaves_messages_undeleted(self):
+        self.mock_write.side_effect = RuntimeError("commit failed")
+        event = sqs_event(META_TEXT_PAYLOAD, SPOKI_TEXT_PAYLOAD)
+
+        soal.main(event)
+
+        self.mock_write.assert_called_once()
+        self.mock_delete.assert_not_called()
+
+    def test_unparseable_message_left_on_queue(self):
+        event = {"Records": [{"body": "not-json", "receiptHandle": "rh-0"}]}
+
+        soal.main(event)
+
+        self.mock_write.assert_not_called()
+        self.mock_delete.assert_not_called()
 
 
 if __name__ == "__main__":

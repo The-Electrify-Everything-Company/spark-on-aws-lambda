@@ -9,6 +9,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, LongType
 
 # Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -20,6 +24,7 @@ aws_region = session.region_name
 # Initialize clients using the session
 s3_client = session.client('s3')
 sqs_client = session.client('sqs')
+ssm_client = session.client('ssm')
 
 # Define retry parameters for iceberg write
 WRITE_MAX_RETIRES = 5
@@ -27,13 +32,32 @@ BACKOFF_FACTOR = 2
 # Environment variables
 DATABASE_NAME = os.environ.get("GLUE_DATABASE")
 TABLE_NAME = os.environ.get("ICEBERG_TABLE")
-WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN')
 S3_BUCKET = os.environ.get('S3_BUCKET')
 S3_IMAGE_PREFIX = os.environ.get('S3_IMAGE_PREFIX')
-ICEBERG_TABLE_LOCATION = os.environ.get('ICEBERG_TABLE_LOCATION') 
+ICEBERG_TABLE_LOCATION = os.environ.get('ICEBERG_TABLE_LOCATION')
 QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
 
+# WhatsApp access token lives in SSM Parameter Store (SecureString), not an env var - fetched
+# lazily below so importing this module never makes a live AWS call.
+WHATSAPP_ACCESS_TOKEN_SSM_PARAMETER_NAME = '/spark-on-lambda/whatsapp/access-token'
+
 spark_session = None
+_whatsapp_access_token = None
+
+
+def get_whatsapp_access_token():
+    """Fetch and cache the WhatsApp access token from SSM Parameter Store on first use."""
+    global _whatsapp_access_token
+    if _whatsapp_access_token is None:
+        try:
+            response = ssm_client.get_parameter(
+                Name=WHATSAPP_ACCESS_TOKEN_SSM_PARAMETER_NAME,
+                WithDecryption=True
+            )
+            _whatsapp_access_token = response['Parameter']['Value']
+        except Exception as e:
+            logger.error(f"Failed to fetch WhatsApp access token from SSM parameter {WHATSAPP_ACCESS_TOKEN_SSM_PARAMETER_NAME}: {e}")
+    return _whatsapp_access_token
 
 
 # Define schema matching your table structure
@@ -84,7 +108,6 @@ def create_iceberg_spark_session():
         .config("spark.sql.catalog.glue_catalog.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog") \
         .config("spark.sql.catalog.glue_catalog.warehouse", ICEBERG_TABLE_LOCATION ) \
         .config("spark.sql.defaultCatalog", "glue_catalog" ) \
-        .config("spark.jars.packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.iceberg:iceberg-aws-bundle:1.4.2") \
         .config("spark.sql.catalog.glue_catalog.glue.skip-name-validation", True) \
         .config("spark.hadoop.fs.s3a.aws.credentials.provider","org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider") \
         .config("spark.sql.catalog.glue_catalog.lock-impl","org.apache.iceberg.aws.dynamodb.DynamoDbLockManager") \
@@ -174,8 +197,7 @@ def write_to_iceberg(records: list, spark):
         return  # Exit the function on success
 
     except Exception as e:
-        error_message = str(e)
-        logger.error(f"There was an error write to Iceberg: {error_message}")
+        logger.error(f"There was an error writing to Iceberg: {type(e).__name__}: {e}", exc_info=True)
         raise
 
 
@@ -184,14 +206,15 @@ def download_whatsapp_media(media_id):
     Download media from WhatsApp Business API
     """
     try:
-        if not WHATSAPP_ACCESS_TOKEN:
-            logger.error("WHATSAPP_ACCESS_TOKEN environment variable not set")
+        access_token = get_whatsapp_access_token()
+        if not access_token:
+            logger.error("WhatsApp access token not available")
             return None
 
         # Get media URL
         media_url = f"https://graph.facebook.com/v17.0/{media_id}"
         headers = {
-            'Authorization': f'Bearer {WHATSAPP_ACCESS_TOKEN}'
+            'Authorization': f'Bearer {access_token}'
         }
         
         logger.info(f"Fetching media URL for {media_id}")
@@ -622,49 +645,94 @@ def handle_message_event(payload, spark):
         }
 
 
+def _delete_sqs_message(receipt_handle):
+    """
+    Deletes a single message from the SQS queue. No-ops (with a warning) if
+    QUEUE_URL isn't configured; logs and swallows delete failures so one bad
+    delete doesn't derail the rest of the batch.
+    """
+    if not QUEUE_URL:
+        logger.warning("QUEUE_URL not set, skipping SQS message deletion")
+        return
+    try:
+        sqs_client.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=receipt_handle)
+        logger.info("Successfully deleted message from SQS queue")
+    except Exception as e:
+        logger.error(f"Failed to delete message from SQS: {str(e)}")
+
+
 def main(event):
     try:
         logger.info(f"Event: {event}")
         start_time = time.time()
+
+        # Create Spark session once for the whole batch
+        spark = get_spark()
+        logger.info(f"Spark Session created")
+
+        records_to_write = []       # combined rows for a single batched Iceberg write
+        handles_pending_write = []  # receipt handles whose records are in records_to_write
+        handles_to_delete_now = []  # messages with nothing to write - safe to delete immediately
+
         # Extracting the WhatsApp Message Payload from SQS
         # SQS event has Records array with each record having body
         for record in event['Records']:
-            payload = json.loads(record['body'])
             receipt_handle = record['receiptHandle']
-            
-            # Create Spark session
-            spark = get_spark()
-            logger.info(f"Spark Session created")
-            
-            # Process the event with Spark
-            result = handle_message_event(payload, spark)
-            logger.info(f"Processed event: {result}")
-            # Delete the message from the queue using the receipt handle
-            if QUEUE_URL:
-                try:
-                    sqs_client.delete_message(
-                        QueueUrl=QUEUE_URL,
-                        ReceiptHandle=receipt_handle
+            try:
+                payload = json.loads(record['body'])
+                vendor = detect_vendor(payload)
+                if vendor == 'meta':
+                    parsed = build_meta_records(payload)
+                elif vendor == 'spoki':
+                    parsed = build_spoki_records(payload)
+                else:
+                    logger.warning(
+                        f"Unrecognized webhook payload shape, skipping. Top-level keys: "
+                        f"{list(payload.keys()) if isinstance(payload, dict) else type(payload)}"
                     )
-                    logger.info(f"Successfully deleted message from SQS queue")
-                except Exception as e:
-                    logger.error(f"Failed to delete message from SQS: {str(e)}")
+                    parsed = []
+            except Exception as e:
+                # Leave the message on the queue rather than deleting an unparseable one
+                logger.error(f"Error parsing SQS message body: {e}", exc_info=True)
+                continue
+
+            if parsed:
+                records_to_write.extend(parsed)
+                handles_pending_write.append(receipt_handle)
             else:
-                logger.warning("QUEUE_URL not set, skipping SQS message deletion")
+                handles_to_delete_now.append(receipt_handle)
+
+        for rh in handles_to_delete_now:
+            _delete_sqs_message(rh)
+
+        if records_to_write:
+            try:
+                write_to_iceberg(records_to_write, spark)
+                for rh in handles_pending_write:
+                    _delete_sqs_message(rh)
+            except Exception:
+                # Leave every pending message on the queue so the whole batch is
+                # retried/DLQ'd instead of losing records from a failed commit.
+                logger.error(
+                    f"Batch Iceberg write failed; leaving {len(handles_pending_write)} "
+                    f"message(s) on the queue for retry",
+                    exc_info=True
+                )
+
         elapsed_time = time.time()- start_time
         logger.info(f"Total processing time: {elapsed_time} seconds")
         # Stop Spark session after processing all records
         spark.stop()
-        
-        
+
+
         return {
             "statusCode": 200,
             "body": json.dumps({"message": "Processing completed successfully"})
         }
-        
+
     except Exception as e:
         logger.error(f"Error processing log event: {str(e)}", exc_info=True)
-        
+
         # Ensure Spark session is stopped even on error
         try:
             if spark_session:

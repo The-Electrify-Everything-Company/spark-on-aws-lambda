@@ -57,6 +57,13 @@ def spark_submit(s3_bucket_script: str,input_script: str, event: dict)-> None:
 
         logger.info("=== SUBPROCESS STDERR ===")
         logger.error(result.stderr)
+    except subprocess.CalledProcessError as e:
+        logger.error(f'Error Spark-Submit with exception: {e}')
+        logger.error("=== SUBPROCESS STDOUT (on failure) ===")
+        logger.error(e.stdout)
+        logger.error("=== SUBPROCESS STDERR (on failure) ===")
+        logger.error(e.stderr)
+        raise e
     except Exception as e :
         logger.error(f'Error Spark-Submit with exception: {e}')
         raise e

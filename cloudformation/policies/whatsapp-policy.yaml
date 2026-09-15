@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM policy granting the SOAL WhatsApp workload Lambda role the permissions it needs
+  (ECR pull, S3, DynamoDB, SQS, Glue, LakeFormation, SSM/KMS), scoped to the specific
+  resources the workload touches. Nested stack referenced by sam-template.yaml when
+  WorkloadType=whatsapp.
+
+Parameters:
+  ParentStackName:
+    Description: 'Mandatory: Name of the parent SOAL stack, used to name the policy'
+    Type: String
+  RoleName:
+    Description: 'Mandatory: Name of the Lambda execution role to attach this policy to'
+    Type: String
+  ImageUri:
+    Description: 'Mandatory: ECR Uri for the image, used to scope the ECR pull permissions'
+    Type: String
+  ScriptBucket:
+    Description: 'Mandatory: S3 bucket the spark script is downloaded from (env var SCRIPT_BUCKET, before BackupSuffix)'
+    Type: String
+  S3Bucket:
+    Description: 'Mandatory: S3 bucket used to store WhatsApp media (env var S3_BUCKET, before BackupSuffix)'
+    Type: String
+  IcebergTableLocation:
+    Description: 'Mandatory: S3 location of the Iceberg table (env var ICEBERG_TABLE_LOCATION, before BackupSuffix)'
+    Type: String
+  GlueDatabase:
+    Description: 'Mandatory: Glue database name (env var GLUE_DATABASE)'
+    Type: String
+  IcebergTable:
+    Description: 'Mandatory: Iceberg table name (env var ICEBERG_TABLE)'
+    Type: String
+  SqsQueueUrl:
+    Description: 'Mandatory: SQS queue URL the Lambda consumes from (env var SQS_QUEUE_URL)'
+    Type: String
+  BackupSuffix:
+    Type: String
+    Default: ''
+
+Resources:
+  LambdaPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: !Sub 'SparkOnLmandaDefaulPolicy-${ParentStackName}'
+      PolicyDocument:
+        Statement:
+          - Sid: EcrGetAuthorizationToken
+            Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+            Resource: '*'
+          - Sid: EcrPullImage
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+            Resource:
+              Fn::Sub:
+                - "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}"
+                - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
+          - Sid: ScriptBucketRead
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource:
+              Fn::Sub: 'arn:aws:s3:::${ScriptBucket}${BackupSuffix}/*'
+          - Sid: WhatsappMediaBucketWrite
+            Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource:
+              Fn::Sub: 'arn:aws:s3:::${S3Bucket}${BackupSuffix}/*'
+          - Sid: IcebergWarehouseBucketAccess
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource:
+              - Fn::Sub:
+                  - 'arn:aws:s3:::${BucketName}'
+                  - BucketName: !Select [0, !Split ["/", !Select [1, !Split ["s3://", !Sub '${IcebergTableLocation}${BackupSuffix}']]]]
+              - Fn::Sub:
+                  - 'arn:aws:s3:::${BucketName}/*'
+                  - BucketName: !Select [0, !Split ["/", !Select [1, !Split ["s3://", !Sub '${IcebergTableLocation}${BackupSuffix}']]]]
+          - Sid: WhatsappQueueAccess
+            Effect: Allow
+            Action:
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+            Resource:
+              Fn::Sub:
+                - 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${QueueName}'
+                - QueueName: !Select [4, !Split ["/", !Ref SqsQueueUrl]]
+          - Sid: IcebergLockTable
+            Effect: Allow
+            Action:
+              - dynamodb:CreateTable
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+            Resource:
+              # Table name is hardcoded in soal_whatsapp_api_iceberg_write.py's
+              # spark.sql.catalog.glue_catalog.lock.table config - keep in sync.
+              Fn::Sub: 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/iceberg_lock_table'
+          - Sid: WhatsappGlueCatalogAccess
+            Effect: Allow
+            Action:
+              - glue:GetDatabase
+              - glue:GetDatabases
+              - glue:GetTable
+              - glue:GetPartitions
+              - glue:UpdateTable
+              - glue:CreateTable
+              - glue:BatchCreatePartition
+              - glue:BatchDeletePartition
+            Resource:
+              - Fn::Sub: 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog'
+              - Fn::Sub: 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${GlueDatabase}'
+              - Fn::Sub: 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${GlueDatabase}/${IcebergTable}'
+          - Sid: LakeFormationDataAccess
+            Effect: Allow
+            Action:
+              - lakeformation:GetDataAccess
+            # Lake Formation permissions are not resource-scopable via IAM ARNs;
+            # access control is enforced separately through LF grants.
+            Resource: '*'
+          - Sid: WhatsappAccessTokenParameter
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource:
+              Fn::Sub: 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/spark-on-lambda/whatsapp/access-token'
+          - Sid: WhatsappAccessTokenParameterDecrypt
+            Effect: Allow
+            Action:
+              - kms:Decrypt
+            # The SSM SecureString uses the default AWS-managed aws/ssm key, whose
+            # ARN isn't knowable at template-authoring time, so this is scoped via
+            # Condition instead of a resource ARN.
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 'ssm.${AWS::Region}.amazonaws.com'
+                kms:EncryptionContext:PARAMETER_ARN:
+                  Fn::Sub: 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/spark-on-lambda/whatsapp/access-token'
+      Roles:
+        - !Ref RoleName
