@@ -19,7 +19,7 @@ lineage-non-prod:
       <<: *default_params
       stack_name: spark-on-lambda-stack
       region: eu-west-1
-      image_repository: 533267385393.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder-dr
+      image_repository: 533267385393.dkr.ecr.eu-west-1.amazonaws.com/sparkonlambda-spark-on-lambda-image-builder
       parameter_overrides:
         # Mandatory (no default in sam-template.yaml) - must be set
         - ScriptBucket=spark-on-lambda-non-prod
