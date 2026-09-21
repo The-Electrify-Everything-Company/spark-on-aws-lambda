@@ -63,7 +63,7 @@ Resources:
               - ecr:BatchGetImage
             Resource:
               Fn::Sub:
-                - "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}"
+                - "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}${BackupSuffix}"
                 - RepositoryName: !Select [1, !Split ["/", !Select [ 0, !Split [":", !Select [5, !Split [".", !Ref ImageUri ]]]]]]
           - Sid: ScriptBucketRead
             Effect: Allow

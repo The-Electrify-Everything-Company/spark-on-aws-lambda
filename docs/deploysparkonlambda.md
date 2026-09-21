@@ -43,7 +43,9 @@ collisions when standing up a second copy of the stack (e.g. during a migration)
 
 `BackupSuffix` isn't limited to the role name — it's also folded into the deployed image reference and a
 few env vars, so a non-empty `BackupSuffix` gives the second copy of the stack its own image tag and
-storage locations, not just its own role:
+storage locations, not just its own role. For a backup/disaster-recovery deploy into a secondary region,
+`BackupSuffix` is meant to be paired with a dedicated `-dr` config-env — see "Disaster recovery / backup:
+adding a secondary-region config-env" below:
 
 - **`ImageUri`**: any existing `:tag` on the supplied `ImageUri` is stripped and replaced, so the Lambda
   actually deploys `<repo>${BackupSuffix}:latest` regardless of the tag passed in.
@@ -244,6 +246,69 @@ whatsapp-non-prod:
 The `lineage-prod` and `whatsapp-prod` sections follow the same shape as their non-prod counterparts, with
 prod account/region/`stack_name`/`image_repository` values.
 
+### Disaster recovery / backup: adding a secondary-region config-env
+
+**Every `samconfig.yaml` config-env above hardcodes `region: eu-west-1`. Changing that value in place only
+moves a stack — it does not give you an independent standby.** A real backup/disaster-recovery deploy
+needs its own `--config-env` (e.g. `lineage-non-prod-dr`) pointed at a secondary region, so the primary and
+the DR copy can each be deployed/updated independently, and this DR config-env is what must be created
+before you can actually run a DR deploy.
+
+Pair the secondary region with `BackupSuffix=-dr` (the same parameter documented in "Common parameters"
+above). This isn't optional cosmetics: `RoleName` — and the IAM role it produces — is account-global, not
+region-scoped, unlike the CloudFormation stack itself, which is scoped per-region and never collides with
+the primary on `stack_name` alone. Deploying the same template with the same `RoleName` into a second
+region of the same account collides with the primary region's role unless `BackupSuffix` distinguishes
+them. Since `BackupSuffix` also gets folded into `ImageUri`'s tag and the bucket-suffixed env vars, set it
+for every DR config-env rather than relying on it only where it's strictly required for the role name.
+
+Before pointing a DR config-env at these values, the following region-scoped resources must already exist
+in the secondary region — none of them are created automatically by the stack:
+
+- **`image_repository` / `ImageUri`**: its own ECR repository in the secondary region, with the image
+  already pushed/replicated there.
+- **`ScriptBucket`, `WarehouseBucket` (lineage) / `S3Bucket` (whatsapp)**: S3 bucket names are globally
+  unique across *all* regions, so the primary's bucket name cannot be reused — use a distinct bucket (or
+  one kept in sync via cross-region replication).
+- **`SqsQueueUrl` (whatsapp only)**: SQS queues are regional — the secondary region needs its own queue.
+- **`stack_name`** may stay the same as the primary's, since CloudFormation stack names don't collide
+  across regions.
+
+```yaml
+lineage-non-prod-dr:
+  deploy:
+    parameters:
+      <<: *default_params
+      stack_name: spark-on-lambda-stack
+      region: <secondary-region>
+      # ensure the <non-prod-ecr-repo-in-secondary-region> does not have -dr 
+      image_repository: <non-prod-ecr-repo-in-secondary-region>
+      parameter_overrides:
+        # Mandatory (no default in sam-template.yaml) - must be set
+        - ScriptBucket=<script-bucket-in-secondary-region>
+        - SparkScript=scripts/loglineage.py
+        # ensure the <non-prod-ecr-repo-in-secondary-region> does not have -dr 
+        - ImageUri=<non-prod-ecr-repo-in-secondary-region>:latest
+        - RoleName=soal-lineage-loger-role
+        - BackupSuffix=-dr
+
+        # Optional (has a default in sam-template.yaml) - only listed here to override
+        - LambdaVersion=staging
+        - WarehouseBucket=s3://<warehouse-bucket-in-secondary-region>/
+        - CrTableName=iceberg_curated
+        - DatabaseName=powerup-lakeformation
+        - IcbWorkgroup=iceberg-workgroup
+        - RcTableName=iceberg_records
+        - LineageVerifyTable=lineage_verify
+```
+
+`<secondary-region>` is a placeholder, in the same style as `<non-prod-account>` elsewhere in this doc — no
+specific DR region is fixed for this project. The DR config-env uses the **same AWS account** as its
+primary counterpart; only the region and the region-scoped resource names above change.
+
+The same pattern applies to `lineage-prod-dr`, `whatsapp-non-prod-dr`, and `whatsapp-prod-dr`: each follows
+the shape of its non-DR counterpart above, plus `region: <secondary-region>` and `BackupSuffix=-dr`.
+
 Note: `stack-name` and `region` are SAM CLI deploy options, not CloudFormation template parameters — they
 must be set as top-level `stack_name`/`region` keys (as above), never inside `parameter_overrides`.
 Putting `"stack-name=..."` or `"region=..."` in `parameter_overrides` is silently wrong (CloudFormation
@@ -269,6 +334,13 @@ and applies it — no need to pass `--parameter-overrides`, `--region`, `--s3-bu
 `--image-repository` on the command line. The `whatsapp-*` config-envs deploy the same
 `sam-template.yaml`, just with `WorkloadType=whatsapp` and the WhatsApp-only parameters set (see "IAM
 policy by workload" and "WhatsApp-only parameters" above).
+
+A backup/disaster-recovery deploy into a secondary region is run the same way, by its own `-dr`
+config-env name (see "Disaster recovery / backup: adding a secondary-region config-env" above):
+
+```
+sam deploy --config-env lineage-non-prod-dr
+```
 
 ### Dry run (preview changes before deploying)
 
